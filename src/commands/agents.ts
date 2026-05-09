@@ -1,0 +1,189 @@
+// `claw agents list|publish|unpublish|inbound` — public expert
+// agent management. Agents are addressable as `@<owner>/<slug>` in
+// any prompt; the hub intercepts that pattern and routes to the
+// agent's session.
+
+import { Command } from 'commander';
+import { api } from '../client/api.js';
+import type { ApiAgent, ApiAgentInbound } from '../shared/index.js';
+
+function buildAgentsListQs(opts: { mine?: boolean; owner?: string; q?: string }): string {
+  const params = new URLSearchParams();
+  if (opts.mine)  params.set('mine',  'true');
+  if (opts.owner) params.set('owner', opts.owner);
+  if (opts.q)     params.set('q',     opts.q);
+  return params.toString() ? '?' + params.toString() : '';
+}
+
+function printAgentRow(a: ApiAgent): void {
+  const dot   = a.online ? '●' : '○';
+  const tag   = a.status === 'draft' ? ' [draft]' : '';
+  const iso   = a.isolated ? ' [isolated]' : ' [composable]';
+  const stats = `${a.queriesAllTime} queries`;
+  const tagln = a.tagline ? ` — ${a.tagline}` : '';
+  console.log(`${dot} @${a.handle}${tag}${iso}  ${a.name}  ${stats}${tagln}`);
+}
+
+const agentsList = new Command('list')
+  .alias('ls')
+  .description('list published agents (default) or your own agents (--mine)')
+  .option('--mine',          'list every agent you own, including drafts')
+  .option('--owner <login>', 'list a specific creator\'s published agents')
+  .option('--q <text>',      'substring match on handle / name / tagline')
+  .action(async (opts: { mine?: boolean; owner?: string; q?: string }) => {
+    const data = await api.get<{ items: ApiAgent[] }>(`/api/v1/agents${buildAgentsListQs(opts)}`);
+    if (data.items.length === 0) { console.log('no agents'); return; }
+    for (const a of data.items) printAgentRow(a);
+  });
+
+const agentsPublish = new Command('publish')
+  .description('publish a session as a public agent')
+  .requiredOption('--session <id>', 'the session UUID to back the agent')
+  .requiredOption('--name <name>',  'display name (e.g. "viper-rust-expert")')
+  .option('--tagline <text>',   'one-line description (160 chars max)')
+  .option('--description <text>', 'long-form description, markdown allowed (4 KB max)')
+  .option('--slug <slug>',      'explicit slug (default: derived from session routingName)')
+  .option('--draft',            'publish as draft (status=draft); use --published to go live immediately')
+  .option('--published',        'publish as live (status=published)')
+  .option('--budget <n>',       'daily budget in queries (default 1000, max 100000)', (v) => parseInt(v, 10))
+  .option('--concurrency <n>',  'concurrent in-flight queries cap (default 5, max 20)', (v) => parseInt(v, 10))
+  .option('--isolated',         'isolated mode: agent CC cannot use cross-session routing tools while answering (default true; safer)')
+  .option('--composable',       'composable mode: agent CC may use cross-session routing tools (gated against the requester\'s own access)')
+  .action(async (opts: PublishOpts) => {
+    const r = await api.post<ApiAgent & { restored?: boolean }>('/api/v1/agents', buildPublishBody(opts));
+    printPublishResult(r);
+  });
+
+interface PublishOpts {
+  session: string; name: string; tagline?: string; description?: string;
+  slug?: string; draft?: boolean; published?: boolean;
+  budget?: number; concurrency?: number;
+  isolated?: boolean; composable?: boolean;
+}
+
+function buildPublishBody(opts: PublishOpts): Record<string, unknown> {
+  const status: 'draft' | 'published' = opts.published ? 'published' : 'draft';
+  const body: Record<string, unknown> = {
+    sessionId: opts.session,
+    name:      opts.name,
+    status,
+  };
+  if (opts.tagline)     body.tagline     = opts.tagline;
+  if (opts.description) body.description = opts.description;
+  if (opts.slug)        body.slug        = opts.slug;
+  if (typeof opts.budget === 'number')      body.dailyBudgetQueries = opts.budget;
+  if (typeof opts.concurrency === 'number') body.concurrencyCap     = opts.concurrency;
+  if (opts.composable)                      body.isolated = false;
+  else if (opts.isolated)                   body.isolated = true;
+  return body;
+}
+
+function printPublishResult(r: ApiAgent & { restored?: boolean }): void {
+  console.log(`✓ ${r.restored ? 'restored' : 'published'} agent: @${r.handle}`);
+  console.log(`  name:    ${r.name}`);
+  console.log(`  status:  ${r.status}`);
+  console.log(`  mode:    ${r.isolated ? 'isolated (cross-session routing disabled while answering)' : 'composable (CC may route to peers)'}`);
+  console.log(`  budget:  ${r.dailyBudgetQueries}/day, concurrency ${r.concurrencyCap}`);
+  console.log(`  session: ${r.sessionId}`);
+  if (r.status === 'draft') {
+    console.log(`  next:    'claw agents update --status published @${r.handle}' to make it live`);
+  } else {
+    console.log(`  call as: '@${r.handle} <question>' from any session prompt`);
+  }
+}
+
+const agentsUpdate = new Command('update')
+  .description('update an agent')
+  .argument('<handle>', '@owner/slug')
+  .option('--status <s>',  'draft | published')
+  .option('--name <name>')
+  .option('--tagline <text>')
+  .option('--description <text>')
+  .option('--budget <n>',      'daily budget in queries', (v) => parseInt(v, 10))
+  .option('--concurrency <n>', 'concurrency cap',         (v) => parseInt(v, 10))
+  .option('--isolated',        'switch to isolated mode (block cross-session routing while answering)')
+  .option('--composable',      'switch to composable mode (allow cross-session routing tools)')
+  .action(async (handleArg: string, opts: any) => {
+    const handle = handleArg.replace(/^@/, '');
+    const agent = await api.get<ApiAgent>(`/api/v1/agents/by-handle/${encodeURIComponent(handle.split('/')[0])}/${encodeURIComponent(handle.split('/')[1] ?? '')}`);
+    const body = buildUpdateBody(opts);
+    if (Object.keys(body).length === 0) { console.error('no fields to update'); process.exit(2); }
+    const r = await api.patch<ApiAgent>(`/api/v1/agents/${agent.id}`, body);
+    console.log(`✓ updated @${r.handle}`);
+    console.log(`  status:  ${r.status}`);
+    console.log(`  mode:    ${r.isolated ? 'isolated' : 'composable'}`);
+    console.log(`  budget:  ${r.dailyBudgetQueries}/day, concurrency ${r.concurrencyCap}`);
+  });
+
+function buildUpdateBody(opts: any): Record<string, unknown> {
+  const body: Record<string, unknown> = {};
+  if (opts.status)      body.status      = opts.status;
+  if (opts.name)        body.name        = opts.name;
+  if (opts.tagline)     body.tagline     = opts.tagline;
+  if (opts.description) body.description = opts.description;
+  if (typeof opts.budget === 'number')      body.dailyBudgetQueries = opts.budget;
+  if (typeof opts.concurrency === 'number') body.concurrencyCap     = opts.concurrency;
+  if (opts.composable)  body.isolated = false;
+  else if (opts.isolated) body.isolated = true;
+  return body;
+}
+
+const agentsUnpublish = new Command('unpublish')
+  .description('soft-delete an agent (drops its handle)')
+  .argument('<handle>', '@owner/slug')
+  .action(async (handleArg: string) => {
+    const handle = handleArg.replace(/^@/, '');
+    const [owner, slug] = handle.split('/');
+    if (!owner || !slug) { console.error('expected handle in @owner/slug form'); process.exit(2); }
+    const agent = await api.get<ApiAgent>(`/api/v1/agents/by-handle/${encodeURIComponent(owner)}/${encodeURIComponent(slug)}`);
+    await api.delete(`/api/v1/agents/${agent.id}`);
+    console.log(`✓ unpublished @${handle}`);
+  });
+
+const agentsInbound = new Command('inbound')
+  .description('audit view: who has been calling your agent')
+  .argument('<handle>', '@owner/slug')
+  .option('--days <n>', '1-30 (default 7)', (v) => parseInt(v, 10), 7)
+  .action(async (handleArg: string, opts: { days: number }) => {
+    const handle = handleArg.replace(/^@/, '');
+    const [owner, slug] = handle.split('/');
+    if (!owner || !slug) { console.error('expected handle in @owner/slug form'); process.exit(2); }
+    const agent = await api.get<ApiAgent>(`/api/v1/agents/by-handle/${encodeURIComponent(owner)}/${encodeURIComponent(slug)}`);
+    const data = await api.get<ApiAgentInbound>(`/api/v1/agents/${agent.id}/inbound?days=${opts.days}`);
+    printInboundReport(data);
+  });
+
+function printInboundReport(data: ApiAgentInbound): void {
+  console.log(`@${data.agent.handle}  (${data.window.days}-day window)`);
+  console.log(`  total: ${data.summary.total}  ok: ${data.summary.ok}  denied: ${data.summary.denied}  avg-latency: ${data.summary.avgLatencyMs ?? '—'}ms  askers: ${data.summary.distinctAskers}`);
+  if (data.topAskers.length) printInboundTopAskers(data.topAskers);
+  if (data.recent.length)    printInboundRecent(data.recent);
+}
+
+function printInboundTopAskers(items: ApiAgentInbound['topAskers']): void {
+  console.log('');
+  console.log('top askers:');
+  for (const t of items) {
+    console.log(`  @${t.login.padEnd(20)} ${String(t.count).padStart(4)} queries  last: ${t.lastAt}`);
+  }
+}
+
+function printInboundRecent(items: ApiAgentInbound['recent']): void {
+  console.log('');
+  console.log('recent:');
+  for (const r of items.slice(0, 20)) {
+    const flag = r.ok ? '✓' : '✗';
+    const lat  = r.latencyMs != null ? ` ${r.latencyMs}ms` : '';
+    const why  = r.deniedReason ? ` [${r.deniedReason}]` : '';
+    const q    = r.question.length > 70 ? r.question.slice(0, 67) + '…' : r.question;
+    console.log(`  ${flag} ${r.ts}  @${r.askerLogin}${lat}${why}  ${q}`);
+  }
+}
+
+export const agentsCmd = new Command('agents')
+  .description('public expert agents — list, publish, update, audit')
+  .addCommand(agentsList)
+  .addCommand(agentsPublish)
+  .addCommand(agentsUpdate)
+  .addCommand(agentsUnpublish)
+  .addCommand(agentsInbound);

@@ -1,0 +1,27 @@
+#!/usr/bin/env node
+// claw — clawborrator command-line interface. Forwards to the
+// esbuild-bundled single-file entry that ships in npm tarballs.
+// In dev (with workspace symlinks), tsc's dist/ output is also valid;
+// we prefer the bundled file when present so published installs and
+// `npm link` checkouts resolve identically.
+import { existsSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+
+const here  = dirname(fileURLToPath(import.meta.url));
+const candidates = [
+  resolve(here, '..', 'dist-bundled', 'claw.cjs'),   // published tarball (esbuild CJS)
+  resolve(here, '..', 'dist', 'index.js'),           // tsc-only dev build (ESM)
+];
+const target = candidates.find((p) => existsSync(p));
+if (!target) {
+  console.error('claw: build output missing — run `npm run build` in the CLI workspace');
+  process.exit(1);
+}
+
+// On Windows, dynamic import() requires a file:// URL — bare absolute
+// paths like C:\Users\... are interpreted as a 'c:' URL scheme and rejected.
+import(pathToFileURL(target).href).catch((err) => {
+  console.error(err);
+  process.exit(1);
+});

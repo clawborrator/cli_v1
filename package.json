@@ -1,0 +1,55 @@
+{
+  "name": "clawborrator-cli",
+  "version": "0.2.0",
+  "type": "module",
+  "description": "claw — command-line client for clawborrator. Attach to remote Claude Code sessions, send prompts, resolve permission gates, route across sessions, manage public agents and webhooks. Auth via GitHub OAuth + PKCE.",
+  "license": "MIT",
+  "homepage": "https://github.com/clawborrator/cli_v1",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/clawborrator/cli_v1.git"
+  },
+  "bugs": {
+    "url": "https://github.com/clawborrator/cli_v1/issues"
+  },
+  "keywords": [
+    "claude-code",
+    "clawborrator",
+    "cli",
+    "remote",
+    "ai",
+    "agent"
+  ],
+  "main": "dist-bundled/claw.cjs",
+  "bin": {
+    "claw": "bin/claw"
+  },
+  "files": [
+    "dist-bundled",
+    "bin",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "npm run build:tsc && npm run bundle",
+    "build:tsc": "tsc -p tsconfig.json",
+    "bundle": "esbuild src/index.ts --bundle --platform=node --format=cjs --target=node20 --outfile=dist-bundled/claw.cjs --banner:js=\"#!/usr/bin/env node\"",
+    "dev": "tsx src/index.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "prepublishOnly": "npm run bundle"
+  },
+  "devDependencies": {
+    "@types/node": "^22.7.5",
+    "@types/ws": "^8.5.13",
+    "commander": "^12.1.0",
+    "esbuild": "^0.24.2",
+    "marked": "^14.1.3",
+    "marked-terminal": "^7.2.1",
+    "ora": "^8.1.1",
+    "tsx": "^4.19.1",
+    "typescript": "^5.6.2",
+    "ws": "^8.18.0"
+  }
+}
