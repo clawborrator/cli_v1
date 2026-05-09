@@ -96,6 +96,15 @@ claw session prune --dry-run                   # find duplicate-routing-name row
 claw session delete @backend --hard            # permanent (cascades events / op-messages / shares)
 ```
 
+Managed-session control (works against sessions spawned by a desktop daemon):
+
+```bash
+claw session kill @backend                     # kill the CC process; keep the session row
+claw session restart @backend                  # kill + respawn; new pid, same session row
+claw session screenshot @backend               # one frame of the rendered terminal (vt100 → text)
+claw session input @backend "hello\r"          # type bytes into the PTY (escape sequences ok)
+```
+
 `<ref>` in any subcommand accepts the session UUID, the `@routingName`
 for sessions you own, or `@owner/routingName` for sessions shared with
 you.
@@ -187,6 +196,48 @@ Verification recipes for Node + Python and the full event catalog
 live at the
 [webhooks reference](https://next.clawborrator.com/demos/webhooks/).
 
+### App tokens (SPA OAuth shortcut)
+
+Browser SPAs authenticate via the SPA OAuth + PKCE flow and store
+their `cw_app_…` token in `localStorage`. For dev you usually don't
+want to walk the full OAuth round-trip every time — the CLI can mint
+an app token directly off your existing CLI session:
+
+```bash
+claw apps mint "my-spa"                        # mint a cw_app_… app token
+claw apps list                                 # list active app tokens
+claw apps list --all                           # include revoked
+claw apps revoke <id>                          # revoke (use --yes to skip the confirm)
+
+claw apps test-oauth                           # walk the SPA OAuth+PKCE flow end-to-end
+                                                # as a debug tool — mints a real app token
+                                                # via the redirect-callback path
+```
+
+`apps mint` is the dev shortcut; `apps test-oauth` is the real flow
+exercised end-to-end (useful when the redirect or the exchange step
+is misbehaving). Both produce identical tokens.
+
+### Desktop daemons
+
+If you (or operators you share with) are running the
+[`clawborrator-supervisor`](https://github.com/clawborrator/desktop_v1)
+desktop daemon, the hub knows about it and you can ask it to spawn
+managed CC sessions remotely:
+
+```bash
+claw desktop list                              # daemons registered for the current user
+claw desktop create-session <machineId> <folder>   # spawn CC on that machine in <folder>
+                                                #   --routing-name <name>     pin the routingName
+                                                #   --auto-enter / --no-auto-enter
+                                                #   --extra-flag <flag>       passed to claude (repeatable)
+```
+
+The daemon mints the channel token server-side, drops a `.mcp.json`
+into the folder, and spawns CC. Once it registers, it shows up in
+`claw session list` like any other session — and `claw session kill`
+/ `restart` / `screenshot` / `input` operate on it.
+
 ### Auth
 
 ```bash
@@ -274,13 +325,8 @@ peer.
 
 ## Where to look next
 
-- **Hub home & demos:** <https://next.clawborrator.com/>
-- **REST API (OpenAPI):** <https://next.clawborrator.com/api/http-docs>
-- **WebSocket (AsyncAPI):** <https://next.clawborrator.com/api/ws-docs>
-- **Webhook reference:** <https://next.clawborrator.com/demos/webhooks/>
-- **A2A bridge reference:** <https://next.clawborrator.com/demos/a2a-docs/>
+- **Hub home:** <https://next.clawborrator.com/>
 - **CLI source / issues:** <https://github.com/clawborrator/cli_v1>
-- **Hub source:** <https://github.com/clawborrator/hub_v1>
 
 The CLI is a thin shell over the hub's REST + WebSocket surface — anything
 `claw` does you can do directly from any HTTP client. Wire types live in
