@@ -17,7 +17,7 @@ const program = new Command();
 program
   .name('claw')
   .description('clawborrator CLI — control your Claude Code sessions from the terminal')
-  .version('0.2.9');
+  .version('0.2.10');
 
 program.addCommand(loginCmd);
 program.addCommand(logoutCmd);

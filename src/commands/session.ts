@@ -116,15 +116,26 @@ function buildSessionListQs(opts: { connected?: boolean; all?: boolean }): strin
   return qs.toString() ? '?' + qs : '';
 }
 
-function printSessionListRow(s: ApiSession): void {
-  const dot       = s.connected ? '●' : '○';
-  const slug      = s.routingName ?? '';
+// Three-state status mirrors the SPA's renderSessionsList:
+//   ●  channel WS open               → "online"
+//   ◐  managed daemon online but no
+//      channel                       → "in-flight"
+//        (CC spawning, MANUAL waiting on prompts, or killed)
+//   ○  neither                       → "offline"
+// `onlineMachineIds` comes from /api/v1/desktops; without it we'd
+// fall back to the binary connected/disconnected view.
+function printSessionListRow(s: ApiSession, onlineMachineIds: Set<string>): void {
+  const managedOnline = !!s.managedBy?.machineId && onlineMachineIds.has(s.managedBy.machineId);
+  const dot           = s.connected ? '●' : (managedOnline ? '◐' : '○');
+  const slug          = s.routingName ?? '';
   const qualified = slug
     ? `@${s.startedByLogin}/${slug.replace(/^@/, '')}`
     : '(no routing name)';
   const where = s.cwd ? ` ${s.cwd}` : '';
   const role  = s.role.padEnd(8);
-  const seen  = s.connected ? 'online' : `offline · ${fmtAgo(s.lastSeenAt)}`;
+  const seen  = s.connected
+    ? 'online'
+    : (managedOnline ? `in-flight · ${fmtAgo(s.lastSeenAt)}` : `offline · ${fmtAgo(s.lastSeenAt)}`);
   const arch  = s.archivedAt ? ' · ARCHIVED' : '';
   console.log(`${dot} ${qualified.padEnd(28)} ${role}${where}  [${seen}]${arch}`);
   console.log(`    id: ${s.id}`);
@@ -146,8 +157,19 @@ const sessionList = new Command('list')
   .option('--connected',        'only sessions whose channel WS is currently open')
   .option('--all',              'include archived sessions')
   .action(async (opts: { connected?: boolean; all?: boolean }) => {
-    const data = await api.get<{ items: ApiSession[] }>(
-      '/api/v1/sessions' + buildSessionListQs(opts),
+    // Fetch sessions + desktops in parallel so the row renderer can
+    // resolve the managed-but-offline-channel "◐" state. Without
+    // desktop data, killed managed sessions render as plain "○
+    // offline" which doesn't match the SPA. Failures on the
+    // desktops endpoint are swallowed — we just fall back to the
+    // binary view rather than blocking the listing.
+    const [data, desktops] = await Promise.all([
+      api.get<{ items: ApiSession[] }>('/api/v1/sessions' + buildSessionListQs(opts)),
+      api.get<{ items: { machineId: string; online: boolean }[] }>('/api/v1/desktops')
+        .catch(() => ({ items: [] as { machineId: string; online: boolean }[] })),
+    ]);
+    const onlineMachineIds = new Set(
+      desktops.items.filter((d) => d.online).map((d) => d.machineId),
     );
     if (data.items.length === 0) {
       console.log('no sessions');
@@ -160,7 +182,7 @@ const sessionList = new Command('list')
     // builds operator muscle memory. UUID stays the authoritative
     // identifier and most commands also accept the short
     // `@<slug>` (or even bare `<slug>`) form.
-    for (const s of data.items) printSessionListRow(s);
+    for (const s of data.items) printSessionListRow(s, onlineMachineIds);
     printSessionListFooter();
   });
 
@@ -169,7 +191,21 @@ const sessionInfo = new Command('info')
   .argument('<ref>', 'session UUID or @routingName')
   .action(async (ref: string) => {
     const id = await resolveSessionId(ref);
-    const s = await api.get<ApiSession>(`/api/v1/sessions/${encodeURIComponent(id)}`);
+    // Fetch session + desktops in parallel so the status line can
+    // resolve "in-flight" (managed-but-no-channel) the same way
+    // `claw session ls` and the SPA do.
+    const [s, desktops] = await Promise.all([
+      api.get<ApiSession>(`/api/v1/sessions/${encodeURIComponent(id)}`),
+      api.get<{ items: { machineId: string; online: boolean }[] }>('/api/v1/desktops')
+        .catch(() => ({ items: [] as { machineId: string; online: boolean }[] })),
+    ]);
+    const onlineMachineIds = new Set(
+      desktops.items.filter((d) => d.online).map((d) => d.machineId),
+    );
+    const managedOnline = !!s.managedBy?.machineId && onlineMachineIds.has(s.managedBy.machineId);
+    const statusLabel   = s.connected
+      ? 'connected'
+      : (managedOnline ? 'in-flight (daemon online, no channel)' : 'offline');
     console.log(`session  : ${s.id}`);
     console.log(`routing  : ${s.routingName ?? '(none)'}`);
     console.log(`owner    : @${s.startedByLogin}`);
@@ -179,7 +215,7 @@ const sessionInfo = new Command('info')
     console.log(`channel v: ${s.channelVersion ?? '?'}`);
     console.log(`started  : ${s.startedAt}`);
     console.log(`last seen: ${s.lastSeenAt}`);
-    console.log(`status   : ${s.connected ? 'connected' : 'offline'}${s.archivedAt ? ' · ARCHIVED' : ''}`);
+    console.log(`status   : ${statusLabel}${s.archivedAt ? ' · ARCHIVED' : ''}`);
     // Managed-session block — only printed when the session is
     // managed by a desktop daemon. Surfaces the fields the SPA's
     // Actions menu shows (autoStart, autoEnter) so the CLI is at
