@@ -19,6 +19,10 @@ export interface ApiToken {
   createdAt: string;
   lastUsedAt: string | null;
   revokedAt: string | null;
+  /** Set when the token was minted via a flow that named the requesting machine
+   *  (today: only the supervisor's /spa/start with `machine_id=...`). Drives
+   *  login-dedupe + DELETE /api/v1/desktops/:machineId cleanup. NULL otherwise. */
+  machineId: string | null;
 }
 
 export interface ApiTokenWithPlaintext extends ApiToken {

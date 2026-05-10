@@ -1,8 +1,12 @@
-// `claw token mint|list|revoke|scopes` — channel-token management.
-// PATs are gone; CLI auth is now session-based via `claw login`.
-// This subcommand only handles channel tokens (the secret that
-// clawborrator-mcp ships into .mcp.json so a CC instance can register
-// against the hub).
+// `claw token mint|list|revoke` — token management.
+//   - `mint`   creates channel tokens (the secret clawborrator-mcp
+//              ships into .mcp.json so a CC instance can register).
+//   - `list`   shows BOTH channel and app tokens (app tokens are
+//              minted by the SPA OAuth/PKCE flow + the supervisor's
+//              login subcommand).
+//   - `revoke` works on either kind by id.
+// PATs are gone; CLI/dashboard auth is now session-based via
+// `claw login` and lives in the auth_sessions table.
 
 import { Command } from 'commander';
 import { writeFileSync } from 'node:fs';
@@ -54,18 +58,22 @@ const tokenMint = new Command('mint')
 
 const tokenList = new Command('list')
   .alias('ls')
-  .description('list channel tokens for the current user')
-  .action(async () => {
-    const data = await api.get<{ items: ApiToken[] }>('/api/v1/tokens');
-    if (data.items.length === 0) { console.log('no active channel tokens'); return; }
+  .description('list this user\'s active tokens — both channel (ck_live_…) and app (cw_app_…). Pass --all to include revoked rows.')
+  .option('--all', 'include revoked tokens')
+  .action(async (opts: { all?: boolean }) => {
+    const qs = opts.all ? '?includeRevoked=true' : '';
+    const data = await api.get<{ items: ApiToken[] }>('/api/v1/tokens' + qs);
+    if (data.items.length === 0) { console.log('no active tokens'); return; }
     for (const t of data.items) {
-      const used = t.lastUsedAt ? `last used ${fmtAgo(t.lastUsedAt)}` : 'never used';
-      console.log(`${t.id.toString().padStart(3)}  ${t.prefix}…  ${t.name.padEnd(28)} ${used}`);
+      const used   = t.lastUsedAt ? `last used ${fmtAgo(t.lastUsedAt)}` : 'never used';
+      const status = t.revokedAt ? ' REVOKED' : '';
+      const mach   = t.machineId ? ` mach=${t.machineId.slice(0, 12)}…` : '';
+      console.log(`${t.id.toString().padStart(3)}  ${t.kind.padEnd(7)} ${t.prefix}…  ${t.name.padEnd(28)} ${used}${mach}${status}`);
     }
   });
 
 const tokenRevoke = new Command('revoke')
-  .description('revoke a channel token by id')
+  .description('revoke a token by id (channel or app)')
   .argument('<id>', 'token id (from `claw token list`)')
   .action(async (id: string) => {
     await api.delete(`/api/v1/tokens/${encodeURIComponent(id)}`);
@@ -73,7 +81,7 @@ const tokenRevoke = new Command('revoke')
   });
 
 export const tokenCmd = new Command('token')
-  .description('mint, list, and revoke channel tokens')
+  .description('mint channel tokens; list/revoke channel + app tokens')
   .addCommand(tokenMint)
   .addCommand(tokenList)
   .addCommand(tokenRevoke);
