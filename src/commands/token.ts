@@ -14,6 +14,7 @@ import { resolve } from 'node:path';
 import { api } from '../client/api.js';
 import type { ApiToken, ApiTokenWithPlaintext } from '../shared/index.js';
 import { loadConfig } from '../config.js';
+import { shortUserAgent } from '../util/user-agent.js';
 
 const tokenMint = new Command('mint')
   .description('create a new channel token')
@@ -68,7 +69,8 @@ const tokenList = new Command('list')
       const used   = t.lastUsedAt ? `last used ${fmtAgo(t.lastUsedAt)}` : 'never used';
       const status = t.revokedAt ? ' REVOKED' : '';
       const mach   = t.machineId ? ` mach=${t.machineId.slice(0, 12)}…` : '';
-      console.log(`${t.id.toString().padStart(3)}  ${t.kind.padEnd(7)} ${t.prefix}…  ${t.name.padEnd(28)} ${used}${mach}${status}`);
+      const ua     = t.userAgent ? ` ua="${shortUserAgent(t.userAgent)}"` : '';
+      console.log(`${t.id.toString().padStart(3)}  ${t.kind.padEnd(7)} ${t.prefix}…  ${t.name.padEnd(28)} ${used}${mach}${ua}${status}`);
     }
   });
 

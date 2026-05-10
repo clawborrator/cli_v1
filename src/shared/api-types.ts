@@ -23,6 +23,10 @@ export interface ApiToken {
    *  (today: only the supervisor's /spa/start with `machine_id=...`). Drives
    *  login-dedupe + DELETE /api/v1/desktops/:machineId cleanup. NULL otherwise. */
   machineId: string | null;
+  /** User-Agent header at mint time. Lets `claw token ls` show "Chrome on
+   *  iOS" / "clawborrator-supervisor/0.2.x" / "clawborrator-cli" etc. NULL
+   *  on tokens minted before migration 0018. */
+  userAgent: string | null;
 }
 
 export interface ApiTokenWithPlaintext extends ApiToken {

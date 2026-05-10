@@ -5,6 +5,7 @@
 
 import { Command } from 'commander';
 import { api } from '../client/api.js';
+import { shortUserAgent } from '../util/user-agent.js';
 
 interface ApiAuthSession {
   id:          string;
@@ -16,31 +17,6 @@ interface ApiAuthSession {
   expiresAt:   string;
   revokedAt:   string | null;
   isCurrent:   boolean;
-}
-
-// Compress a long User-Agent into a one-line surface tag. Recognized
-// patterns get a short label; anything else is truncated. Keeps the
-// `auth-sessions ls` output to one row per session.
-function shortUserAgent(ua: string | null): string {
-  if (!ua) return '(unknown)';
-  if (ua.includes('clawborrator-cli'))         return 'clawborrator-cli';
-  if (ua.includes('clawborrator-supervisor'))  return 'clawborrator-supervisor';
-  // Browser detection — order matters (Edge contains "Chrome", iPhone
-  // Chrome contains "CriOS", etc).
-  const isMobile = /\b(iPhone|iPad|Android|Mobile)\b/.test(ua);
-  let browser = 'Browser';
-  if      (/\bCriOS\//.test(ua)) browser = 'Chrome';
-  else if (/\bEdg\//.test(ua))   browser = 'Edge';
-  else if (/\bFirefox\//.test(ua)) browser = 'Firefox';
-  else if (/\bChrome\//.test(ua) && !/\bEdg\//.test(ua)) browser = 'Chrome';
-  else if (/\bSafari\//.test(ua) && !/\bChrome\//.test(ua)) browser = 'Safari';
-  let os = 'Unknown';
-  if      (/\bWindows NT\b/.test(ua))    os = 'Windows';
-  else if (/\bMacintosh\b/.test(ua))     os = 'macOS';
-  else if (/\bLinux\b/.test(ua) && !/\bAndroid\b/.test(ua)) os = 'Linux';
-  else if (/\bAndroid\b/.test(ua))       os = 'Android';
-  else if (/\biPhone\b|\biPad\b/.test(ua)) os = 'iOS';
-  return `${browser} on ${os}${isMobile && !/\biPhone|\biPad|\bAndroid\b/.test(ua) ? ' (mobile)' : ''}`;
 }
 
 function fmtAgo(iso: string): string {
