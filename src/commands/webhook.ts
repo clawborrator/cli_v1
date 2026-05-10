@@ -19,13 +19,16 @@ interface ApiWebhook {
 
 const webhookAdd = new Command('add')
   .description('register a webhook subscription')
-  .requiredOption('--url <url>',          'https://… target endpoint')
-  .requiredOption('--events <csv>',       'comma-separated event types (or "*" for all)')
-  .option('--session <sessionId>',        'narrow to one session')
-  .action(async (opts: { url: string; events: string; session?: string }) => {
+  .requiredOption('--url <url>',           'https://… target endpoint')
+  .requiredOption('--events <csv>',        'comma-separated event types (or "*" for all)')
+  .option('--routing-name <handle>',       'narrow to events for one session by routing name (e.g. @orchard-viper). Stable across managed-session restart / autoStart-respawn / kill+restart cycles, where sessionId would churn.')
+  .action(async (opts: { url: string; events: string; routingName?: string }) => {
     const events = opts.events.split(',').map((s) => s.trim()).filter(Boolean);
     const filters: Record<string, unknown> = {};
-    if (opts.session) filters.sessionId = opts.session;
+    if (opts.routingName) {
+      // Normalize: hub stores the @-prefixed form; accept either input.
+      filters.routingName = opts.routingName.startsWith('@') ? opts.routingName : '@' + opts.routingName;
+    }
     const out = await api.post<ApiWebhook & { signingSecret: string }>('/api/v1/webhooks', {
       url: opts.url, events, filters,
     });
