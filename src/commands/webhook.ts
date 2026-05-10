@@ -21,10 +21,14 @@ const webhookAdd = new Command('add')
   .description('register a webhook subscription')
   .requiredOption('--url <url>',           'https://… target endpoint')
   .requiredOption('--events <csv>',        'comma-separated event types (or "*" for all)')
-  .option('--routing-name <handle>',       'narrow to events for one session by routing name (e.g. @orchard-viper). Stable across managed-session restart / autoStart-respawn / kill+restart cycles, where sessionId would churn.')
-  .action(async (opts: { url: string; events: string; routingName?: string }) => {
+  .option('--session <sessionId>',         'narrow to one specific session by UUID. Durable for unmanaged sessions and managed sessions with preserveSessionId=true; goes silent on impermanent managed restarts (sessionId churns).')
+  .option('--routing-name <handle>',       'narrow by routing name (e.g. @orchard-viper). Stable across managed-session restart / autoStart-respawn / kill+restart cycles. Combine with --session to AND-narrow.')
+  .action(async (opts: { url: string; events: string; session?: string; routingName?: string }) => {
     const events = opts.events.split(',').map((s) => s.trim()).filter(Boolean);
     const filters: Record<string, unknown> = {};
+    if (opts.session) {
+      filters.sessionId = opts.session;
+    }
     if (opts.routingName) {
       // Normalize: hub stores the @-prefixed form; accept either input.
       filters.routingName = opts.routingName.startsWith('@') ? opts.routingName : '@' + opts.routingName;
