@@ -154,6 +154,13 @@ export interface ApiSession {
   // ["--model","opus"]). Recorded for inspection. Today's Restart
   // path drops them — the column reflects spawn-time state only.
   extraFlags?: string[];
+  // When true, the session opts in to sessionId-permanence: a new
+  // POST /sessions/:id/soft-restart endpoint becomes valid, which
+  // SIGKILLs + respawns CC against the existing scratch dir so the
+  // new MCP registers with the SAME sessionId (history kept, tokens
+  // kept, webhook/agent pins survive). Default false (impermanent).
+  // POST /restart (hard reset) remains valid regardless.
+  preserveSessionId?: boolean;
 }
 
 export interface ApiSessionShare {

@@ -595,7 +595,7 @@ const sessionKill = new Command('kill')
   });
 
 const sessionRestart = new Command('restart')
-  .description('kill + respawn the CC process for a managed session')
+  .description('kill + respawn the CC process for a managed session — destroy + create. Fresh sessionId, history erased, channel token rotated. Use `claw session reset` for the soft variant on sessions opted into preserveSessionId.')
   .argument('<ref>', 'session UUID, @routingName, or @owner/slug')
   .action(async (ref: string) => {
     const id = await resolveSessionId(ref, { destructive: true });
@@ -603,6 +603,23 @@ const sessionRestart = new Command('restart')
       `/api/v1/sessions/${encodeURIComponent(id)}/restart`, {},
     );
     console.log(`↺ restarted: ${out.sessionId}`);
+  });
+
+const sessionReset = new Command('reset')
+  .description('soft-restart a managed session — preserves sessionId, history, channel token, and webhook/agent pins. Requires preserveSessionId=true on the session row. Pass --hard to force the destroy+create path (equivalent to `claw session restart`).')
+  .argument('<ref>', 'session UUID, @routingName, or @owner/slug')
+  .option('--hard', 'force a hard reset: destroy + create. Sessionid changes, history erased, channel token rotated.')
+  .action(async (ref: string, opts: { hard?: boolean }) => {
+    const id = await resolveSessionId(ref, { destructive: true });
+    const path = opts.hard
+      ? `/api/v1/sessions/${encodeURIComponent(id)}/restart`
+      : `/api/v1/sessions/${encodeURIComponent(id)}/soft-restart`;
+    const out = await api.post<{ sessionId: string; softRestarted?: boolean }>(path, {});
+    if (opts.hard) {
+      console.log(`💥 hard reset: ${out.sessionId}`);
+    } else {
+      console.log(`↺ reset (sessionId preserved): ${out.sessionId}`);
+    }
   });
 
 const sessionScreenshot = new Command('screenshot')
@@ -653,5 +670,6 @@ export const sessionCmd = new Command('session')
   .addCommand(sessionFileRm)
   .addCommand(sessionKill)
   .addCommand(sessionRestart)
+  .addCommand(sessionReset)
   .addCommand(sessionScreenshot)
   .addCommand(sessionInput);

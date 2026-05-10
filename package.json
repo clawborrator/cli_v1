@@ -1,6 +1,6 @@
 {
   "name": "clawborrator-cli",
-  "version": "0.2.11",
+  "version": "0.2.12",
   "type": "module",
   "description": "claw — command-line client for clawborrator. Attach to remote Claude Code sessions, send prompts, resolve permission gates, route across sessions, manage public agents and webhooks. Auth via GitHub OAuth + PKCE.",
   "license": "MIT",
