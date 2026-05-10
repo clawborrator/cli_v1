@@ -29,6 +29,30 @@ const desktopList = new Command('list')
     }
   });
 
+const desktopDelete = new Command('delete')
+  .description('hard-delete a desktop daemon registration. Revokes any tokens stamped with this machine_id (today: clawborrator-supervisor app tokens) and unmanages any sessions whose managed_by_machine_id matches (the session row survives as unmanaged; destroy it separately if you want it gone). Closes the live /supervisor WS if connected.')
+  .argument('<machineId>', 'desktop machine id (from `claw desktop list`)')
+  .option('--yes', 'skip the confirmation prompt')
+  .action(async (machineId: string, opts: { yes?: boolean }) => {
+    if (!opts.yes) {
+      // Minimal confirm — operator already typed the machineId, so
+      // this is mostly to surface what's about to happen rather than
+      // gate against typos.
+      process.stdout.write(`Hard-delete desktop ${machineId} and revoke its associated tokens? [y/N] `);
+      const answer = await new Promise<string>((res) => {
+        process.stdin.once('data', (d) => res(d.toString().trim().toLowerCase()));
+      });
+      if (answer !== 'y' && answer !== 'yes') { console.log('cancelled'); return; }
+    }
+    const out = await api.delete<{ ok: boolean; tokensRevoked: number; sessionsUnmanaged: number; wsClosed?: boolean }>(
+      `/api/v1/desktops/${encodeURIComponent(machineId)}`,
+    );
+    console.log(`✓ deleted desktop ${machineId}`);
+    console.log(`  tokens revoked:    ${out.tokensRevoked}`);
+    console.log(`  sessions unmanaged: ${out.sessionsUnmanaged}`);
+    if (out.wsClosed) console.log(`  closed the live /supervisor WS`);
+  });
+
 const desktopCreate = new Command('create-session')
   .description('ask a desktop daemon to spawn a managed CC session in a folder')
   .argument('<machineId>', 'desktop machine id (from `claw desktop list`)')
@@ -50,6 +74,7 @@ const desktopCreate = new Command('create-session')
 export const desktopCmd = new Command('desktop')
   .description('inspect + control desktop daemons (clawborrator-supervisor)')
   .addCommand(desktopList)
+  .addCommand(desktopDelete)
   .addCommand(desktopCreate);
 
 function fmtAgo(iso: string): string {
