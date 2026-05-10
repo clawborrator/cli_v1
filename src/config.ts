@@ -20,6 +20,7 @@
 import { homedir } from 'node:os';
 import { resolve } from 'node:path';
 import { mkdirSync, readFileSync, writeFileSync, chmodSync, existsSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
 
 const CONFIG_DIR  = resolve(homedir(), '.clawborrator');
 const CONFIG_PATH = resolve(CONFIG_DIR, 'cli_v1.json');
@@ -27,6 +28,14 @@ const CONFIG_PATH = resolve(CONFIG_DIR, 'cli_v1.json');
 export interface CliConfig {
   hubUrl:       string;
   sessionToken: string | null;
+  // Stable per-install identifier minted on first login. Sent to the
+  // hub at /oauth/start so it can revoke any prior CLI auth_sessions
+  // for this (user, machine) before issuing the new one — avoids
+  // accumulating dead session rows every time `claw login` runs.
+  // Wiping cli_v1.json regenerates it; that's a known orphan source
+  // (same as the supervisor's machine_id), cleanable via a future
+  // `claw auth-sessions revoke` or hub-side admin.
+  machineId:    string;
 }
 
 const DEFAULTS: CliConfig = {
@@ -35,24 +44,39 @@ const DEFAULTS: CliConfig = {
   // which persists into ~/.clawborrator/cli_v1.json.
   hubUrl:       process.env.CLAWBORRATOR_HUB ?? 'https://next.clawborrator.com',
   sessionToken: null,
+  machineId:    '',                    // populated on first loadConfig()
 };
 
 export function loadConfig(): CliConfig {
-  if (!existsSync(CONFIG_PATH)) return { ...DEFAULTS };
-  try {
-    const raw = readFileSync(CONFIG_PATH, 'utf8');
-    const parsed = JSON.parse(raw) as Partial<CliConfig> & { pat?: string | null };
-    return {
-      hubUrl:       parsed.hubUrl?.trim() || DEFAULTS.hubUrl,
-      // Forward-migrate a legacy `pat` field. The token itself is now
-      // dead on the server side, but carrying it forward avoids loud
-      // "config corrupt" errors — the next API call will 401 cleanly
-      // and prompt re-login.
-      sessionToken: parsed.sessionToken ?? parsed.pat ?? null,
-    };
-  } catch {
-    return { ...DEFAULTS };
+  let parsed: Partial<CliConfig> & { pat?: string | null } = {};
+  if (existsSync(CONFIG_PATH)) {
+    try {
+      const raw = readFileSync(CONFIG_PATH, 'utf8');
+      parsed = JSON.parse(raw) as Partial<CliConfig> & { pat?: string | null };
+    } catch {
+      // Fall through with parsed = {} → behaves like first-run.
+    }
   }
+  let machineId = parsed.machineId?.trim() || '';
+  if (!machineId) {
+    machineId = randomUUID();
+    // Persist the new machineId immediately so subsequent reads (and
+    // any concurrent CLI invocations) see the same value.
+    saveConfig({
+      hubUrl:       parsed.hubUrl?.trim() || DEFAULTS.hubUrl,
+      sessionToken: parsed.sessionToken ?? parsed.pat ?? null,
+      machineId,
+    });
+  }
+  return {
+    hubUrl:       parsed.hubUrl?.trim() || DEFAULTS.hubUrl,
+    // Forward-migrate a legacy `pat` field. The token itself is now
+    // dead on the server side, but carrying it forward avoids loud
+    // "config corrupt" errors — the next API call will 401 cleanly
+    // and prompt re-login.
+    sessionToken: parsed.sessionToken ?? parsed.pat ?? null,
+    machineId,
+  };
 }
 
 export function saveConfig(cfg: CliConfig): void {

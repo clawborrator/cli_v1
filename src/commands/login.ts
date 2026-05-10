@@ -96,7 +96,7 @@ function awaitCallback(server: ReturnType<typeof createServer>): Promise<Callbac
   });
 }
 
-async function browserOAuthFlow(hubUrl: string): Promise<TokenResponse> {
+async function browserOAuthFlow(hubUrl: string, machineId: string): Promise<TokenResponse> {
   const verifier  = base64url(randomBytes(32));
   const challenge = base64url(createHash('sha256').update(verifier).digest());
   const state     = base64url(randomBytes(16));
@@ -114,6 +114,7 @@ async function browserOAuthFlow(hubUrl: string): Promise<TokenResponse> {
   startUrl.searchParams.set('state',                 state);
   startUrl.searchParams.set('code_challenge',        challenge);
   startUrl.searchParams.set('code_challenge_method', 'S256');
+  startUrl.searchParams.set('machine_id',            machineId);
 
   console.log('opening browser to authenticate with GitHub…');
   console.log(`  if it doesn't open automatically, paste this URL into a browser:`);
@@ -170,8 +171,8 @@ export const loginCmd = new Command('login')
     const hubUrl = (opts.hub ?? cfg.hubUrl).replace(/\/+$/, '');
     console.log(`hub: ${hubUrl}`);
     try {
-      const { user, session } = await browserOAuthFlow(hubUrl);
-      saveConfig({ hubUrl, sessionToken: session.token });
+      const { user, session } = await browserOAuthFlow(hubUrl, cfg.machineId);
+      saveConfig({ hubUrl, sessionToken: session.token, machineId: cfg.machineId });
       console.log(`logged in as @${user.githubLogin}`);
       console.log(`hub:        ${hubUrl}`);
       console.log(`session:    ${session.token.slice(0, 16)}…  (stored in ~/.clawborrator/cli_v1.json)`);
