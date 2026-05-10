@@ -61,18 +61,24 @@ const desktopCreate = new Command('create-session')
   .description('ask a desktop daemon to spawn a managed CC session in a folder')
   .argument('<machineId>', 'desktop machine id (from `claw desktop list`)')
   .argument('<folder>',    'absolute path on the desktop where CC should be spawned')
-  .option('--routing-name <name>', 'optional routing name for the new session (e.g. @frontend)')
-  .option('--flag <flag...>',      'extra CLI flag to pass to claude. Repeat for multiple. Use one argv slot per --flag (e.g. --flag --model --flag opus, or --flag --model=opus). Reference: https://code.claude.com/docs/en/cli-reference#cli-flags')
-  .option('--manual-start',        'do NOT auto-press Enter on startup; operator answers prompts via screenshot PIP / `claw session input`')
-  .action(async (machineId: string, folder: string, opts: { routingName?: string; flag?: string[]; manualStart?: boolean }) => {
+  .option('--routing-name <name>',    'optional routing name for the new session (e.g. @frontend)')
+  .option('--flag <flag...>',         'extra CLI flag to pass to claude. Repeat for multiple. Use one argv slot per --flag (e.g. --flag --model --flag opus, or --flag --model=opus). Reference: https://code.claude.com/docs/en/cli-reference#cli-flags')
+  .option('--manual-start',           'do NOT auto-press Enter on startup; operator answers prompts via screenshot PIP / `claw session input`')
+  .option('--auto-start',             'respawn this session whenever the desktop daemon reconnects (e.g. after PC reboot). With --preserve-session-id, the respawn keeps the same sessionId; without it, each respawn mints a fresh sessionId + token.')
+  .option('--preserve-session-id',    'opt the session into sessionId-permanence: Reset (soft restart) becomes available, autoStart-respawn keeps the same sessionId, and history + agent.session_id + webhook pins survive across all restart shapes. Default false (impermanent — every restart rotates state).')
+  .action(async (machineId: string, folder: string, opts: { routingName?: string; flag?: string[]; manualStart?: boolean; autoStart?: boolean; preserveSessionId?: boolean }) => {
     const body: Record<string, unknown> = { folder };
-    if (opts.routingName) body.routingName = opts.routingName;
-    if (opts.flag && opts.flag.length > 0) body.flags = opts.flag;
-    if (opts.manualStart) body.autoEnter = false;
+    if (opts.routingName)       body.routingName       = opts.routingName;
+    if (opts.flag && opts.flag.length > 0) body.flags  = opts.flag;
+    if (opts.manualStart)       body.autoEnter         = false;
+    if (opts.autoStart)         body.autoStart         = true;
+    if (opts.preserveSessionId) body.preserveSessionId = true;
     const out = await api.post<{ sessionId: string }>(
       `/api/v1/desktops/${encodeURIComponent(machineId)}/sessions`, body,
     );
     console.log(`✓ session created: ${out.sessionId}`);
+    if (opts.autoStart)         console.log(`  auto-start:          ON`);
+    if (opts.preserveSessionId) console.log(`  preserve session id: ON`);
   });
 
 export const desktopCmd = new Command('desktop')
