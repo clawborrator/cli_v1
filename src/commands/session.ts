@@ -192,6 +192,12 @@ const sessionInfo = new Command('info')
       // change; show '?' rather than guessing the default.
       const ae = s.autoEnter === undefined ? '?' : (s.autoEnter ? 'ON (auto)' : 'OFF (manual)');
       console.log(`autoEnter: ${ae}`);
+      // extraFlags undefined → server is pre-persistence (older hub);
+      // empty array → recorded but no flags supplied at create.
+      const flags = s.extraFlags;
+      if (flags === undefined)        console.log('flags    : ?');
+      else if (flags.length === 0)    console.log('flags    : (none)');
+      else                            console.log(`flags    : ${flags.join(' ')}`);
     }
     if (s.agentHandle) {
       console.log(`agent    : ${s.agentHandle}`);

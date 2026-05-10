@@ -146,6 +146,10 @@ export interface ApiSession {
   // autoStart-respawn honor the operator's original create-time
   // choice instead of always flipping back to auto.
   autoEnter?: boolean;
+  // Operator-supplied CLI flags forwarded to `claude` at spawn (e.g.
+  // ["--model","opus"]). Recorded for inspection. Today's Restart
+  // path drops them — the column reflects spawn-time state only.
+  extraFlags?: string[];
 }
 
 export interface ApiSessionShare {
