@@ -1,6 +1,13 @@
 // Config + session-token storage. v1 uses a JSON file at
-// ~/.clawborrator/config.json with mode 0600 (POSIX) — OS secret-store
+// ~/.clawborrator/cli_v1.json with mode 0600 (POSIX) — OS secret-store
 // integration is a future hardening pass.
+//
+// File name is component-scoped (`cli_v1.json` rather than the more
+// generic `config.json`) so that future siblings under
+// ~/.clawborrator/ — daemon scratch dirs, per-folder sidecars, etc. —
+// don't collide. Forward-only rename: 0.2.4+ does NOT read the old
+// ~/.clawborrator/config.json; users on the upgrade path re-login
+// once.
 //
 // `sessionToken` is the post-OAuth session credential the CLI got
 // from /api/v1/auth/oauth/token. Format: `cw_sess_<32 hex>`. The
@@ -15,7 +22,7 @@ import { resolve } from 'node:path';
 import { mkdirSync, readFileSync, writeFileSync, chmodSync, existsSync } from 'node:fs';
 
 const CONFIG_DIR  = resolve(homedir(), '.clawborrator');
-const CONFIG_PATH = resolve(CONFIG_DIR, 'config.json');
+const CONFIG_PATH = resolve(CONFIG_DIR, 'cli_v1.json');
 
 export interface CliConfig {
   hubUrl:       string;
@@ -25,7 +32,7 @@ export interface CliConfig {
 const DEFAULTS: CliConfig = {
   // Default to the public hub. Local-dev users override via either
   // CLAWBORRATOR_HUB=http://localhost:8787 or `claw login --hub <url>`,
-  // which persists into ~/.clawborrator/config.json.
+  // which persists into ~/.clawborrator/cli_v1.json.
   hubUrl:       process.env.CLAWBORRATOR_HUB ?? 'https://next.clawborrator.com',
   sessionToken: null,
 };

@@ -57,7 +57,7 @@ claw token mint --name "$(hostname)" --mcp-snippet --out .mcp.json
 #   `claw session list`.
 ```
 
-The session token is stored at `~/.clawborrator/config.json` (mode
+The session token is stored at `~/.clawborrator/cli_v1.json` (mode
 0600). To talk to a different hub, pass `--hub <url>` once on login;
 the URL persists.
 
@@ -175,7 +175,7 @@ reach other peers.
 Anyone can also call your agent over the
 [A2A protocol](https://a2a-protocol.org) at
 `/api/a2a/v1/agents/<owner>/<slug>` — see the
-[A2A bridge reference](https://next.clawborrator.com/demos/a2a-docs/).
+[A2A bridge reference](https://next.clawborrator.com/demos/a2a/#reference).
 
 ### Webhooks
 
@@ -290,7 +290,7 @@ In-TUI commands:
 
 | Path | Contents |
 |---|---|
-| `~/.clawborrator/config.json` | hub URL + session token (mode 0600) |
+| `~/.clawborrator/cli_v1.json` | hub URL + session token (mode 0600) |
 | `$CLAWBORRATOR_HUB` | env override for hub URL (one-shot, doesn't persist) |
 
 ---

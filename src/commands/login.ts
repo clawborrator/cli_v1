@@ -10,7 +10,7 @@
 //      callback, the hub redirects to our localhost server with a
 //      single-use ?code= and the original ?state=.
 //   5. We POST { code, code_verifier } to /api/v1/auth/oauth/token,
-//      receive a session token, store it in ~/.clawborrator/config.json.
+//      receive a session token, store it in ~/.clawborrator/cli_v1.json.
 //
 // The session token is a hub-issued credential (`cw_sess_<...>`); the
 // hub's auth middleware accepts it as `Authorization: Bearer …`.
@@ -174,7 +174,7 @@ export const loginCmd = new Command('login')
       saveConfig({ hubUrl, sessionToken: session.token });
       console.log(`logged in as @${user.githubLogin}`);
       console.log(`hub:        ${hubUrl}`);
-      console.log(`session:    ${session.token.slice(0, 16)}…  (stored in ~/.clawborrator/config.json)`);
+      console.log(`session:    ${session.token.slice(0, 16)}…  (stored in ~/.clawborrator/cli_v1.json)`);
       console.log(`expires at: ${session.expiresAt}`);
     } catch (e) {
       if (e instanceof ApiError && e.status === 503) {
