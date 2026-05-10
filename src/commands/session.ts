@@ -331,7 +331,7 @@ const sessionMessages = new Command('messages')
   });
 
 const sessionArchive = new Command('archive')
-  .description('soft-delete a session (sets archivedAt). Note: register-time reconnect unarchives, so a session whose UUID is still in a project\'s .claude/clawborrator/session.json will resurrect on its next start.')
+  .description('soft-delete a session (sets archivedAt). Note: register-time reconnect unarchives, so a session whose UUID is still in a project\'s .claude/clawborrator/identity.json will resurrect on its next start.')
   .argument('<ref>', 'session UUID or @routingName')
   .action(async (ref: string) => {
     const id = await resolveSessionId(ref);
