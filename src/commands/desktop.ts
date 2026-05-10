@@ -17,7 +17,7 @@ interface ApiDesktop {
 
 const desktopList = new Command('list')
   .alias('ls')
-  .description('list desktop daemons registered for the current user')
+  .description('list desktop daemons registered for the current user. Prints the full machineId so it can be passed verbatim to `claw desktop delete`.')
   .action(async () => {
     const data = await api.get<{ items: ApiDesktop[] }>('/api/v1/desktops');
     if (data.items.length === 0) { console.log('no registered desktops'); return; }
@@ -25,7 +25,7 @@ const desktopList = new Command('list')
       const dot = d.online ? '●' : '○';
       const host = d.hostname ?? '(unknown host)';
       const ver  = d.daemonVersion ?? '?';
-      console.log(`${dot} ${d.machineId.slice(0, 8)}  ${host.padEnd(24)} v${ver.padEnd(8)} last-seen ${fmtAgo(d.lastSeenAt)}`);
+      console.log(`${dot} ${d.machineId}  ${host.padEnd(24)} v${ver.padEnd(8)} last-seen ${fmtAgo(d.lastSeenAt)}`);
     }
   });
 
