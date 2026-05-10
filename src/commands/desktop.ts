@@ -42,6 +42,10 @@ const desktopDelete = new Command('delete')
       const answer = await new Promise<string>((res) => {
         process.stdin.once('data', (d) => res(d.toString().trim().toLowerCase()));
       });
+      // .once() on stdin puts the stream into flowing mode; without
+      // pause() Node keeps the event loop alive after the listener
+      // fires and the CLI hangs after printing its success message.
+      process.stdin.pause();
       if (answer !== 'y' && answer !== 'yes') { console.log('cancelled'); return; }
     }
     const out = await api.delete<{ ok: boolean; tokensRevoked: number; sessionsUnmanaged: number; wsClosed?: boolean }>(
