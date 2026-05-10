@@ -12,12 +12,13 @@ import { webhookCmd } from './commands/webhook.js';
 import { agentsCmd } from './commands/agents.js';
 import { appsCmd } from './commands/apps.js';
 import { desktopCmd } from './commands/desktop.js';
+import { authSessionsCmd } from './commands/auth-sessions.js';
 
 const program = new Command();
 program
   .name('claw')
   .description('clawborrator CLI — control your Claude Code sessions from the terminal')
-  .version('0.2.14');
+  .version('0.2.15');
 
 program.addCommand(loginCmd);
 program.addCommand(logoutCmd);
@@ -31,6 +32,7 @@ program.addCommand(webhookCmd);
 program.addCommand(agentsCmd);
 program.addCommand(appsCmd);
 program.addCommand(desktopCmd);
+program.addCommand(authSessionsCmd);
 
 program.parseAsync(process.argv).catch((err) => {
   console.error(err.message ?? err);
