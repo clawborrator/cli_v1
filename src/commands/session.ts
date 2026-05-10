@@ -382,7 +382,14 @@ const sessionDelete = new Command('delete')
     const sweep = (r.blobsSwept && r.blobsSwept > 0)
       ? ` · swept ${r.blobsSwept} blob${r.blobsSwept === 1 ? '' : 's'} (${r.bytesFreed ?? 0} bytes freed)`
       : '';
-    console.log(`✗ deleted ${r.sessionId} (events / op-messages / shares / files cascaded)${sweep}`);
+    // Cascade list mirrors the FK chain on the hub: sessions →
+    // events / op-messages / shares / files / permission_requests /
+    // reply_chunks (direct), AND sessions → agents → agent_query_log
+    // (two-hop). If the session was published as an agent, the
+    // agent row + its entire audit trail go with it. Honest message
+    // beats the "events / op-messages / shares / files" half-truth
+    // that hid the agent_query_log loss.
+    console.log(`✗ deleted ${r.sessionId} (events / op-messages / shares / files / permission_requests / reply_chunks / any agent + agent_query_log cascaded)${sweep}`);
   });
 
 const sessionPrompt = new Command('prompt')
