@@ -180,6 +180,22 @@ const sessionInfo = new Command('info')
     console.log(`started  : ${s.startedAt}`);
     console.log(`last seen: ${s.lastSeenAt}`);
     console.log(`status   : ${s.connected ? 'connected' : 'offline'}${s.archivedAt ? ' · ARCHIVED' : ''}`);
+    // Managed-session block — only printed when the session is
+    // managed by a desktop daemon. Surfaces the fields the SPA's
+    // Actions menu shows (autoStart, autoEnter) so the CLI is at
+    // parity for inspection.
+    if (s.managedBy?.machineId) {
+      const ver = s.managedBy.daemonVersion ? ` (daemon ${s.managedBy.daemonVersion})` : '';
+      console.log(`managed  : ${s.managedBy.machineId}${ver}`);
+      console.log(`autoStart: ${s.autoStart ? 'ON' : 'OFF'}`);
+      // autoEnter undefined → server is older than the persistence
+      // change; show '?' rather than guessing the default.
+      const ae = s.autoEnter === undefined ? '?' : (s.autoEnter ? 'ON (auto)' : 'OFF (manual)');
+      console.log(`autoEnter: ${ae}`);
+    }
+    if (s.agentHandle) {
+      console.log(`agent    : ${s.agentHandle}`);
+    }
   });
 
 interface ApiEvent {

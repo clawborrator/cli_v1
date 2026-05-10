@@ -137,6 +137,15 @@ export interface ApiSession {
   // /supervisor protocol. Null = unmanaged (CLI-spawned, manually-
   // configured MCP, etc).
   managedBy?: { machineId: string; daemonVersion?: string | null } | null;
+  // When true, the daemon's reconnect flow respawns this session
+  // automatically. Carried across respawn (the new row inherits the
+  // flag); toggle from the SPA's session-action menu.
+  autoStart?: boolean;
+  // When true (default), the daemon hammers Enter for ~5s post-spawn
+  // to dismiss CC's startup prompts. Persisted so Restart and
+  // autoStart-respawn honor the operator's original create-time
+  // choice instead of always flipping back to auto.
+  autoEnter?: boolean;
 }
 
 export interface ApiSessionShare {
