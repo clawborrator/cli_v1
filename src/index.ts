@@ -14,19 +14,20 @@ import { appsCmd } from './commands/apps.js';
 import { desktopCmd } from './commands/desktop.js';
 import { authSessionsCmd } from './commands/auth-sessions.js';
 
-// Pull the version from package.json at bundle time. createRequire +
-// require() lets us reach across the rootDir boundary (TS's
-// resolveJsonModule with rootDir: "src" would refuse a static import).
-// esbuild inlines the JSON resolution into the bundled CJS, so the
-// runtime cost is a single property read — no fs calls.
-import { createRequire } from 'node:module';
-const pkg = createRequire(import.meta.url)('../package.json') as { version: string };
+// Version comes from package.json via esbuild's --define at bundle
+// time — see `bundle` script in package.json. tsc reads the declared
+// fallback ('dev') and the CJS bundle gets the real version
+// substituted in. Single source of truth: package.json. Bumping it
+// (or running `npm version patch`) flows through to `claw --version`
+// without a code edit.
+declare const __CLAW_VERSION__: string;
+const CLAW_VERSION: string = (typeof __CLAW_VERSION__ === 'string') ? __CLAW_VERSION__ : 'dev';
 
 const program = new Command();
 program
   .name('claw')
   .description('clawborrator CLI — control your Claude Code sessions from the terminal')
-  .version(pkg.version);
+  .version(CLAW_VERSION);
 
 program.addCommand(loginCmd);
 program.addCommand(logoutCmd);
