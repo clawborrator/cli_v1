@@ -13,6 +13,7 @@ import { agentsCmd } from './commands/agents.js';
 import { appsCmd } from './commands/apps.js';
 import { desktopCmd } from './commands/desktop.js';
 import { authSessionsCmd } from './commands/auth-sessions.js';
+import { adminCmd } from './commands/admin.js';
 
 // Version comes from package.json via esbuild's --define at bundle
 // time — see `bundle` script in package.json. tsc reads the declared
@@ -42,6 +43,11 @@ program.addCommand(agentsCmd);
 program.addCommand(appsCmd);
 program.addCommand(desktopCmd);
 program.addCommand(authSessionsCmd);
+// Hidden — `claw admin --help` still works, but the top-level
+// `claw --help` won't list it. Non-admin users would 403 on every
+// admin endpoint anyway, so keeping the surface quiet keeps the
+// noise down for the 90% case.
+program.addCommand(adminCmd, { hidden: true });
 
 program.parseAsync(process.argv).catch((err) => {
   console.error(err.message ?? err);
