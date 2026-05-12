@@ -14,11 +14,19 @@ import { appsCmd } from './commands/apps.js';
 import { desktopCmd } from './commands/desktop.js';
 import { authSessionsCmd } from './commands/auth-sessions.js';
 
+// Pull the version from package.json at bundle time. createRequire +
+// require() lets us reach across the rootDir boundary (TS's
+// resolveJsonModule with rootDir: "src" would refuse a static import).
+// esbuild inlines the JSON resolution into the bundled CJS, so the
+// runtime cost is a single property read — no fs calls.
+import { createRequire } from 'node:module';
+const pkg = createRequire(import.meta.url)('../package.json') as { version: string };
+
 const program = new Command();
 program
   .name('claw')
   .description('clawborrator CLI — control your Claude Code sessions from the terminal')
-  .version('0.2.16');
+  .version(pkg.version);
 
 program.addCommand(loginCmd);
 program.addCommand(logoutCmd);
