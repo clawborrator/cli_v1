@@ -5,7 +5,7 @@
 
 import { Command } from 'commander';
 import { api } from '../client/api.js';
-import type { ApiAgent, ApiAgentInbound } from '../shared/index.js';
+import type { ApiAgent, ApiAgentInbound, ApiAgentThreadsResponse } from '../shared/index.js';
 
 function buildAgentsListQs(opts: { mine?: boolean; owner?: string; q?: string }): string {
   const params = new URLSearchParams();
@@ -19,9 +19,10 @@ function printAgentRow(a: ApiAgent): void {
   const dot   = a.online ? '●' : '○';
   const tag   = a.status === 'draft' ? ' [draft]' : '';
   const iso   = a.isolated ? ' [isolated]' : ' [composable]';
+  const live  = a.liveView ? ' [📡 public-view]' : '';
   const stats = `${a.queriesAllTime} queries`;
   const tagln = a.tagline ? ` — ${a.tagline}` : '';
-  console.log(`${dot} @${a.handle}${tag}${iso}  ${a.name}  ${stats}${tagln}`);
+  console.log(`${dot} @${a.handle}${tag}${iso}${live}  ${a.name}  ${stats}${tagln}`);
 }
 
 const agentsList = new Command('list')
@@ -49,16 +50,27 @@ const agentsPublish = new Command('publish')
   .option('--concurrency <n>',  'concurrent in-flight queries cap (default 5, max 20)', (v) => parseInt(v, 10))
   .option('--isolated',         'isolated mode: agent CC cannot use cross-session routing tools while answering (default true; safer)')
   .option('--composable',       'composable mode: agent CC may use cross-session routing tools (gated against the requester\'s own access)')
+  .option('--live-view',        'expose this agent on next.clawborrator.com (anonymous visitors can watch the terminal + chat). Everything on the terminal becomes public — use a scratch session.')
+  .option('--no-live-view',     'force live-view OFF (default)')
+  .option('--suggested-prompt <text>', 'chip prompt shown above the live-view composer (repeatable, max 6)', collectRepeatable, [])
   .action(async (opts: PublishOpts) => {
     const r = await api.post<ApiAgent & { restored?: boolean }>('/api/v1/agents', buildPublishBody(opts));
     printPublishResult(r);
   });
+
+// Commander's repeatable-option collector: each --flag <v> append into
+// the accumulator array. Pass as the third arg to .option() with an
+// initial [] to make a flag repeatable.
+function collectRepeatable(value: string, prev: string[]): string[] {
+  return prev.concat([value]);
+}
 
 interface PublishOpts {
   session: string; name: string; tagline?: string; description?: string;
   slug?: string; draft?: boolean; published?: boolean;
   budget?: number; concurrency?: number;
   isolated?: boolean; composable?: boolean;
+  liveView?: boolean; suggestedPrompt?: string[];
 }
 
 function buildPublishBody(opts: PublishOpts): Record<string, unknown> {
@@ -75,6 +87,13 @@ function buildPublishBody(opts: PublishOpts): Record<string, unknown> {
   if (typeof opts.concurrency === 'number') body.concurrencyCap     = opts.concurrency;
   if (opts.composable)                      body.isolated = false;
   else if (opts.isolated)                   body.isolated = true;
+  // --live-view / --no-live-view. Commander encodes --no-X by setting
+  // the same option to `false`, so an explicit absence stays
+  // undefined (server default applies).
+  if (typeof opts.liveView === 'boolean')   body.liveView = opts.liveView;
+  if (opts.suggestedPrompt && opts.suggestedPrompt.length) {
+    body.suggestedPrompts = opts.suggestedPrompt;
+  }
   return body;
 }
 
@@ -103,6 +122,9 @@ const agentsUpdate = new Command('update')
   .option('--concurrency <n>', 'concurrency cap',         (v) => parseInt(v, 10))
   .option('--isolated',        'switch to isolated mode (block cross-session routing while answering)')
   .option('--composable',      'switch to composable mode (allow cross-session routing tools)')
+  .option('--live-view',       'enable public live-view on next.clawborrator.com (requires status=published)')
+  .option('--no-live-view',    'disable public live-view')
+  .option('--suggested-prompt <text>', 'replace the chip-prompt list (repeatable, max 6). Pass with no values to clear.', collectRepeatable, [])
   .action(async (handleArg: string, opts: any) => {
     const handle = handleArg.replace(/^@/, '');
     const agent = await api.get<ApiAgent>(`/api/v1/agents/by-handle/${encodeURIComponent(handle.split('/')[0])}/${encodeURIComponent(handle.split('/')[1] ?? '')}`);
@@ -125,6 +147,15 @@ function buildUpdateBody(opts: any): Record<string, unknown> {
   if (typeof opts.concurrency === 'number') body.concurrencyCap     = opts.concurrency;
   if (opts.composable)  body.isolated = false;
   else if (opts.isolated) body.isolated = true;
+  if (typeof opts.liveView === 'boolean')   body.liveView           = opts.liveView;
+  // Only send suggestedPrompts when the operator actually used the
+  // flag (commander gives [] when not used, but we can't distinguish
+  // that from "explicitly clear" without a sentinel — using --no-live-
+  // view to clear is the cleaner path; sending [] here would clobber
+  // existing chips silently).
+  if (Array.isArray(opts.suggestedPrompt) && opts.suggestedPrompt.length > 0) {
+    body.suggestedPrompts = opts.suggestedPrompt;
+  }
   return body;
 }
 
@@ -156,15 +187,26 @@ const agentsInbound = new Command('inbound')
 function printInboundReport(data: ApiAgentInbound): void {
   console.log(`@${data.agent.handle}  (${data.window.days}-day window)`);
   console.log(`  total: ${data.summary.total}  ok: ${data.summary.ok}  denied: ${data.summary.denied}  avg-latency: ${data.summary.avgLatencyMs ?? '—'}ms  askers: ${data.summary.distinctAskers}`);
+  if (data.publicThreadStats) {
+    const p = data.publicThreadStats;
+    console.log(`  public threads: ${p.total} total · ${p.today} today · ${p.active} active`);
+  }
   if (data.topAskers.length) printInboundTopAskers(data.topAskers);
   if (data.recent.length)    printInboundRecent(data.recent);
+}
+
+// '(public)' is the server-side sentinel for anonymous public-ask
+// traffic (post-migration 0022). Render those rows without the @
+// prefix so they don't read as a GitHub user handle.
+function formatAskerLogin(login: string): string {
+  return login === '(public)' ? '(public)' : '@' + login;
 }
 
 function printInboundTopAskers(items: ApiAgentInbound['topAskers']): void {
   console.log('');
   console.log('top askers:');
   for (const t of items) {
-    console.log(`  @${t.login.padEnd(20)} ${String(t.count).padStart(4)} queries  last: ${t.lastAt}`);
+    console.log(`  ${formatAskerLogin(t.login).padEnd(21)} ${String(t.count).padStart(4)} queries  last: ${t.lastAt}`);
   }
 }
 
@@ -176,14 +218,49 @@ function printInboundRecent(items: ApiAgentInbound['recent']): void {
     const lat  = r.latencyMs != null ? ` ${r.latencyMs}ms` : '';
     const why  = r.deniedReason ? ` [${r.deniedReason}]` : '';
     const q    = r.question.length > 70 ? r.question.slice(0, 67) + '…' : r.question;
-    console.log(`  ${flag} ${r.ts}  @${r.askerLogin}${lat}${why}  ${q}`);
+    console.log(`  ${flag} ${r.ts}  ${formatAskerLogin(r.askerLogin)}${lat}${why}  ${q}`);
+  }
+}
+
+const agentsThreads = new Command('threads')
+  .description('list anonymous public-view chat threads for an agent (creator-only)')
+  .argument('<handle>', '@owner/slug')
+  .option('--limit <n>',   '1-200 (default 50)', (v) => parseInt(v, 10), 50)
+  .option('--status <s>',  'active | capped | closed | soft_deleted')
+  .action(async (handleArg: string, opts: { limit: number; status?: string }) => {
+    const handle = handleArg.replace(/^@/, '');
+    const [owner, slug] = handle.split('/');
+    if (!owner || !slug) { console.error('expected handle in @owner/slug form'); process.exit(2); }
+    const agent = await api.get<ApiAgent>(`/api/v1/agents/by-handle/${encodeURIComponent(owner)}/${encodeURIComponent(slug)}`);
+    const qs = new URLSearchParams();
+    qs.set('limit', String(opts.limit));
+    if (opts.status) qs.set('status', opts.status);
+    const data = await api.get<ApiAgentThreadsResponse>(`/api/v1/agents/${agent.id}/threads?${qs.toString()}`);
+    printThreadsReport(data, handle);
+  });
+
+function printThreadsReport(data: ApiAgentThreadsResponse, handle: string): void {
+  const s = data.summary;
+  console.log(`@${handle}  public-view threads`);
+  console.log(`  ${s.total} total · ${s.today} today · ${s.active} active`);
+  if (data.items.length === 0) {
+    console.log('  (none)');
+    return;
+  }
+  console.log('');
+  for (const t of data.items) {
+    const status = t.status === 'active' ? '●' : t.status === 'capped' ? '◐' : '○';
+    const last = new Date(t.lastSeenAt).toISOString();
+    const prompt = t.lastPrompt ? ' — "' + t.lastPrompt + '"' : '';
+    console.log(`  ${status} ${t.threadId}  ${String(t.messageCount).padStart(2)} msgs  last: ${last}${prompt}`);
   }
 }
 
 export const agentsCmd = new Command('agents')
-  .description('public expert agents — list, publish, update, audit')
+  .description('public expert agents — list, publish, update, audit, threads')
   .addCommand(agentsList)
   .addCommand(agentsPublish)
   .addCommand(agentsUpdate)
   .addCommand(agentsUnpublish)
-  .addCommand(agentsInbound);
+  .addCommand(agentsInbound)
+  .addCommand(agentsThreads);

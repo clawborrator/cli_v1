@@ -71,6 +71,20 @@ export interface ApiAgent {
    *  second expandable section on the discovery page. Null when
    *  unset. */
   personalizationPrompt: string | null;
+  /** When true (default false), this agent has been opted in to the
+   *  public-live demo surface: anonymous visitors at
+   *  next.clawborrator.com can watch its CC terminal screenshot and
+   *  hold per-visitor chats with it. Operator-set at publish time
+   *  only — no MCP tool flips it at runtime. */
+  liveView:            boolean;
+  /** Epoch-ms when liveView first went true. Null when never enabled,
+   *  or after a flip back to false. Drives the "live since X"
+   *  disclosure copy. */
+  liveViewEnabledAt:   number | null;
+  /** Up to ~6 prompt strings rendered as chips above the composer on
+   *  the landing-page demo. Empty array when none set / when liveView
+   *  is off. */
+  suggestedPrompts:    string[];
 }
 
 export interface ApiAgentInbound {
@@ -83,9 +97,17 @@ export interface ApiAgentInbound {
     avgLatencyMs:    number | null;
     distinctAskers:  number;
   };
+  /** Roll-up of anonymous public-view chat threads. All-time totals,
+   *  not bounded by the inbound window. */
+  publicThreadStats: {
+    total:  number;
+    today:  number;
+    active: number;
+  };
   topAskers: { login: string; count: number; lastAt: string }[];
   recent: {
     ts:           string;
+    /** "(public)" for anonymous public-ask traffic. */
     askerLogin:   string;
     ok:           boolean;
     latencyMs:    number | null;
@@ -93,6 +115,21 @@ export interface ApiAgentInbound {
     routeId:      string | null;
     deniedReason: string | null;
   }[];
+}
+
+/** GET /api/v1/agents/:id/threads — owner-only public-thread list. */
+export interface ApiAgentThread {
+  threadId:     string;
+  createdAt:    number;
+  lastSeenAt:   number;
+  messageCount: number;
+  status:       'active' | 'capped' | 'closed' | 'soft_deleted';
+  lastPrompt:   string | null;
+}
+
+export interface ApiAgentThreadsResponse {
+  summary: { total: number; today: number; active: number };
+  items:   ApiAgentThread[];
 }
 
 export interface ApiFile {
