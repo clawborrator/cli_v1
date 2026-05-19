@@ -622,16 +622,34 @@ const sessionReset = new Command('reset')
     }
   });
 
+// Wire shape comes straight from the supervisor daemon's
+// screenshot_session in clawborrator-supervisor/src/spawn.rs:
+//   { rows, cols, cursor: {row,col}, lines: [[{t, fg?, bg?, b?, i?, u?, inv?}, ...], ...] }
+// Each row is an array of run-length-encoded styled spans; the `t`
+// field carries the text. We collapse styles for the plaintext
+// CLI surface (callers that want colour can hit the same endpoint
+// directly).
+interface ScreenshotRun { t?: string }
+interface ScreenshotResponse {
+  rows:    number;
+  cols:    number;
+  lines:   ScreenshotRun[][];
+  cursor?: { row: number; col: number };
+}
+
 const sessionScreenshot = new Command('screenshot')
   .description('print the current rendered terminal frame for a managed session')
   .argument('<ref>', 'session UUID, @routingName, or @owner/slug')
   .action(async (ref: string) => {
     const id = await resolveSessionId(ref);
-    const out = await api.get<{ rows: number; cols: number; text: string; cursor?: { row: number; col: number } }>(
+    const out = await api.get<ScreenshotResponse>(
       `/api/v1/sessions/${encodeURIComponent(id)}/screenshot`,
     );
     console.error(`(${out.cols}×${out.rows} terminal — cursor at ${out.cursor?.row ?? '?'},${out.cursor?.col ?? '?'})`);
-    process.stdout.write(out.text.endsWith('\n') ? out.text : out.text + '\n');
+    const text = (out.lines ?? [])
+      .map(row => row.map(run => run?.t ?? '').join(''))
+      .join('\n');
+    process.stdout.write(text.endsWith('\n') ? text : text + '\n');
   });
 
 // `claw session input` — type raw bytes into a managed session's
