@@ -692,7 +692,7 @@ interface ApiTokenUsageRow {
 
 interface UsageOpts {
   since?: string; until?: string;
-  snapshots?: boolean; json?: boolean; owner?: string;
+  snapshots?: boolean; hourly?: boolean; json?: boolean; owner?: string;
 }
 
 interface TokenTotals { input: number; output: number; cacheRead: number; cacheCreation: number }
@@ -722,7 +722,7 @@ function fmtTokens(n: number): string {
 // keyed by (ccSessionId, model) picks the latest of each.
 function rollUpByModel(rows: ApiTokenUsageRow[]): Map<string, TokenTotals> {
   const latest = new Map<string, ApiTokenUsageRow>();
-  for (const r of rows) latest.set(`${r.ccSessionId} ${r.model}`, r);
+  for (const r of rows) latest.set(`${r.ccSessionId} ${r.model}`, r);
   const byModel = new Map<string, TokenTotals>();
   for (const r of latest.values()) {
     let t = byModel.get(r.model);
@@ -755,6 +755,46 @@ function printUsageSnapshotRow(r: ApiTokenUsageRow): void {
   console.log(`${ts}  ${r.reason.padEnd(6)} ${r.ccSessionId.slice(0, 8)} ${r.model.padEnd(20)} in ${fmtTokens(r.inputTokens)}  out ${fmtTokens(r.outputTokens)}  cr ${fmtTokens(r.cacheReadTokens)}  cc ${fmtTokens(r.cacheCreationTokens)}`);
 }
 
+// Per-hour usage deltas. Counters are cumulative within one
+// (ccSessionId, model) series, so the usage in a tick is its
+// cumulative minus the previous tick's of the same series; the
+// first tick of a series counts as its own delta (the incarnation
+// started from zero). Deltas land in the UTC-hour bucket of their
+// capturedAt — matching the ISO timestamps the rest of this command
+// prints — and are summed across every series. Rows oldest-first,
+// like --snapshots.
+function rollUpByHour(rows: ApiTokenUsageRow[]): { hour: string; total: number }[] {
+  const series = new Map<string, ApiTokenUsageRow[]>();
+  for (const r of rows) {
+    const key = `${r.ccSessionId} ${r.model}`;
+    const arr = series.get(key) ?? [];
+    arr.push(r);
+    series.set(key, arr);
+  }
+  const buckets = new Map<string, number>();
+  for (const arr of series.values()) {
+    arr.sort((a, b) => (a.capturedAt < b.capturedAt ? -1 : 1));
+    let prev = 0;
+    for (const r of arr) {
+      const cum   = r.inputTokens + r.outputTokens + r.cacheReadTokens + r.cacheCreationTokens;
+      const delta = Math.max(0, cum - prev);
+      prev = cum;
+      const hour = r.capturedAt.slice(0, 13) + ':00';
+      buckets.set(hour, (buckets.get(hour) ?? 0) + delta);
+    }
+  }
+  return [...buckets.entries()]
+    .map(([hour, total]) => ({ hour, total }))
+    .sort((a, b) => (a.hour < b.hour ? -1 : 1));
+}
+
+function printUsageByHour(rows: ApiTokenUsageRow[]): void {
+  const hours = rollUpByHour(rows);
+  for (const h of hours) {
+    console.log(`${h.hour.replace('T', ' ')}  ${fmtTokens(h.total).padStart(16)} tokens`);
+  }
+}
+
 async function runSessionUsage(ref: string, opts: UsageOpts): Promise<void> {
   const id = await resolveSessionId(ref);
   const qs = new URLSearchParams();
@@ -768,6 +808,11 @@ async function runSessionUsage(ref: string, opts: UsageOpts): Promise<void> {
   if (data.snapshots.length === 0) { console.log('no token usage recorded for this session'); return; }
   if (opts.snapshots) {
     for (const r of data.snapshots) printUsageSnapshotRow(r);
+    return;
+  }
+  if (opts.hourly) {
+    console.log(`session  : ${data.sessionId}`);
+    printUsageByHour(data.snapshots);
     return;
   }
   console.log(`session  : ${data.sessionId}`);
@@ -794,6 +839,7 @@ async function runUsageReport(opts: UsageOpts): Promise<void> {
   }
   if (opts.json) { console.log(JSON.stringify(all, null, 2)); return; }
   if (all.length === 0) { console.log('no token usage recorded'); return; }
+  if (opts.hourly) { printUsageByHour(all); return; }
   const bySession = new Map<string, ApiTokenUsageRow[]>();
   for (const r of all) {
     let arr = bySession.get(r.sessionId);
@@ -816,9 +862,14 @@ const sessionUsage = new Command('usage')
   .option('--since <iso>', 'only snapshots at/after this ISO timestamp')
   .option('--until <iso>', 'only snapshots at/before this ISO timestamp')
   .option('--snapshots',   'list every snapshot instead of the rolled-up total (per-session)')
+  .option('--hourly',      'per-hour usage totals (deltas between cumulative snapshots)')
   .option('--owner <id>',  'admin: cross-session report for another user id')
   .option('--json',        'emit raw JSON')
   .action(async (ref: string | undefined, opts: UsageOpts) => {
+    if (opts.snapshots && opts.hourly) {
+      console.error('error: use --snapshots OR --hourly, not both');
+      process.exit(2);
+    }
     if (ref) await runSessionUsage(ref, opts);
     else     await runUsageReport(opts);
   });
