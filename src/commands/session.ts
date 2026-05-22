@@ -670,10 +670,164 @@ const sessionInput = new Command('input')
     console.error(`✓ wrote ${out.wrote ?? payload.length} bytes`);
   });
 
+// ─── token usage ────────────────────────────────────────────────────
+// `claw session usage [ref]` — per-session token usage, or (no ref) a
+// cross-session report. Backed by GET /api/v1/sessions/:id/token-usage
+// and GET /api/v1/token-usage. Snapshots are cumulative per
+// (ccSessionId, model); see hub_v1 migration 0024/0025.
+
+interface ApiTokenUsageRow {
+  id:                  number;
+  sessionId:           string;
+  ccSessionId:         string;
+  ownerId:             number;
+  capturedAt:          string;
+  model:               string;
+  inputTokens:         number;
+  outputTokens:        number;
+  cacheReadTokens:     number;
+  cacheCreationTokens: number;
+  reason:              'hourly' | 'final';
+}
+
+interface UsageOpts {
+  since?: string; until?: string;
+  snapshots?: boolean; json?: boolean; owner?: string;
+}
+
+interface TokenTotals { input: number; output: number; cacheRead: number; cacheCreation: number }
+
+function emptyTotals(): TokenTotals {
+  return { input: 0, output: 0, cacheRead: 0, cacheCreation: 0 };
+}
+
+function addInto(dst: TokenTotals, src: TokenTotals): void {
+  dst.input += src.input; dst.output += src.output;
+  dst.cacheRead += src.cacheRead; dst.cacheCreation += src.cacheCreation;
+}
+
+function grandTotal(t: TokenTotals): number {
+  return t.input + t.output + t.cacheRead + t.cacheCreation;
+}
+
+function fmtTokens(n: number): string {
+  return n.toLocaleString('en-US');
+}
+
+// Collapse snapshot rows to per-model totals. Counters are cumulative
+// within one (ccSessionId, model) series, so the latest row is that
+// CC incarnation's total; summing the latest of every incarnation
+// gives the model's true total across soft-restarts / respawns. Both
+// hub endpoints return rows oldest-first, so a plain last-wins map
+// keyed by (ccSessionId, model) picks the latest of each.
+function rollUpByModel(rows: ApiTokenUsageRow[]): Map<string, TokenTotals> {
+  const latest = new Map<string, ApiTokenUsageRow>();
+  for (const r of rows) latest.set(`${r.ccSessionId} ${r.model}`, r);
+  const byModel = new Map<string, TokenTotals>();
+  for (const r of latest.values()) {
+    let t = byModel.get(r.model);
+    if (!t) { t = emptyTotals(); byModel.set(r.model, t); }
+    t.input += r.inputTokens; t.output += r.outputTokens;
+    t.cacheRead += r.cacheReadTokens; t.cacheCreation += r.cacheCreationTokens;
+  }
+  return byModel;
+}
+
+function printUsageSummary(rows: ApiTokenUsageRow[]): TokenTotals {
+  const byModel = rollUpByModel(rows);
+  const models = [...byModel.keys()].sort();
+  const modelW = Math.max(8, ...models.map((m) => m.length));
+  const total = emptyTotals();
+  console.log('models   :');
+  for (const m of models) {
+    const t = byModel.get(m)!;
+    addInto(total, t);
+    console.log(`  ${m.padEnd(modelW)}  in ${fmtTokens(t.input)}  out ${fmtTokens(t.output)}  cache-read ${fmtTokens(t.cacheRead)}  cache-create ${fmtTokens(t.cacheCreation)}`);
+  }
+  const incarnations = new Set(rows.map((r) => r.ccSessionId)).size;
+  console.log(`total    : in ${fmtTokens(total.input)}  out ${fmtTokens(total.output)}  cache-read ${fmtTokens(total.cacheRead)}  cache-create ${fmtTokens(total.cacheCreation)}`);
+  console.log(`           ${fmtTokens(grandTotal(total))} tokens · ${rows.length} snapshot${rows.length === 1 ? '' : 's'} · ${incarnations} incarnation${incarnations === 1 ? '' : 's'}`);
+  return total;
+}
+
+function printUsageSnapshotRow(r: ApiTokenUsageRow): void {
+  const ts = r.capturedAt.slice(0, 19).replace('T', ' ');
+  console.log(`${ts}  ${r.reason.padEnd(6)} ${r.ccSessionId.slice(0, 8)} ${r.model.padEnd(20)} in ${fmtTokens(r.inputTokens)}  out ${fmtTokens(r.outputTokens)}  cr ${fmtTokens(r.cacheReadTokens)}  cc ${fmtTokens(r.cacheCreationTokens)}`);
+}
+
+async function runSessionUsage(ref: string, opts: UsageOpts): Promise<void> {
+  const id = await resolveSessionId(ref);
+  const qs = new URLSearchParams();
+  if (opts.since) qs.set('since', opts.since);
+  if (opts.until) qs.set('until', opts.until);
+  const suffix = qs.toString() ? `?${qs.toString()}` : '';
+  const data = await api.get<{ sessionId: string; snapshots: ApiTokenUsageRow[] }>(
+    `/api/v1/sessions/${encodeURIComponent(id)}/token-usage${suffix}`,
+  );
+  if (opts.json) { console.log(JSON.stringify(data, null, 2)); return; }
+  if (data.snapshots.length === 0) { console.log('no token usage recorded for this session'); return; }
+  if (opts.snapshots) {
+    for (const r of data.snapshots) printUsageSnapshotRow(r);
+    return;
+  }
+  console.log(`session  : ${data.sessionId}`);
+  printUsageSummary(data.snapshots);
+}
+
+async function runUsageReport(opts: UsageOpts): Promise<void> {
+  // Page through the report feed (cursor on row id) and aggregate.
+  const base = new URLSearchParams({ limit: '1000' });
+  if (opts.since) base.set('since', opts.since);
+  if (opts.until) base.set('until', opts.until);
+  if (opts.owner) base.set('ownerId', opts.owner);
+  const all: ApiTokenUsageRow[] = [];
+  let cursor: number | null = null;
+  for (let page = 0; page < 100; page++) {
+    const qs = new URLSearchParams(base);
+    if (cursor !== null) qs.set('cursor', String(cursor));
+    const data = await api.get<{ rows: ApiTokenUsageRow[]; nextCursor: number | null }>(
+      `/api/v1/token-usage?${qs.toString()}`,
+    );
+    all.push(...data.rows);
+    if (data.nextCursor === null) break;
+    cursor = data.nextCursor;
+  }
+  if (opts.json) { console.log(JSON.stringify(all, null, 2)); return; }
+  if (all.length === 0) { console.log('no token usage recorded'); return; }
+  const bySession = new Map<string, ApiTokenUsageRow[]>();
+  for (const r of all) {
+    let arr = bySession.get(r.sessionId);
+    if (!arr) { arr = []; bySession.set(r.sessionId, arr); }
+    arr.push(r);
+  }
+  const total = emptyTotals();
+  for (const [sid, rows] of bySession) {
+    const st = emptyTotals();
+    for (const t of rollUpByModel(rows).values()) addInto(st, t);
+    addInto(total, st);
+    console.log(`${sid.slice(0, 8)}  ${fmtTokens(grandTotal(st)).padStart(16)} tokens  (in ${fmtTokens(st.input)} · out ${fmtTokens(st.output)} · cache ${fmtTokens(st.cacheRead + st.cacheCreation)})`);
+  }
+  console.log(`${'TOTAL'.padEnd(8)}  ${fmtTokens(grandTotal(total)).padStart(16)} tokens  · ${bySession.size} session${bySession.size === 1 ? '' : 's'}`);
+}
+
+const sessionUsage = new Command('usage')
+  .description('show token usage for a session, or (no ref) across all your sessions')
+  .argument('[ref]', 'session UUID or @routingName; omit for a cross-session report')
+  .option('--since <iso>', 'only snapshots at/after this ISO timestamp')
+  .option('--until <iso>', 'only snapshots at/before this ISO timestamp')
+  .option('--snapshots',   'list every snapshot instead of the rolled-up total (per-session)')
+  .option('--owner <id>',  'admin: cross-session report for another user id')
+  .option('--json',        'emit raw JSON')
+  .action(async (ref: string | undefined, opts: UsageOpts) => {
+    if (ref) await runSessionUsage(ref, opts);
+    else     await runUsageReport(opts);
+  });
+
 export const sessionCmd = new Command('session')
   .description('manage Claude Code sessions registered with this hub')
   .addCommand(sessionList)
   .addCommand(sessionInfo)
+  .addCommand(sessionUsage)
   .addCommand(sessionAttach)
   .addCommand(sessionEvents)
   .addCommand(sessionMessages)
