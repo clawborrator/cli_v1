@@ -307,6 +307,8 @@ interface AdminAgentRow {
   isolated: boolean;
   sessionRoute: string | null;
   online: boolean;
+  status: 'draft' | 'published';
+  deletedAt: string | null;
   dailyBudgetQueries: number | null;
   concurrencyCap: number | null;
   createdAt: string;
@@ -314,17 +316,30 @@ interface AdminAgentRow {
 
 const agentsList = new Command('list')
   .alias('ls')
-  .description('every agent across all owners, including isolated')
+  .description('every agent across all owners, including isolated and soft-deleted')
   .option('--json', 'emit JSON instead of a table')
   .action(async (opts: { json?: boolean }) => {
     const r = await api.get<{ items: AdminAgentRow[]; total: number }>('/api/v1/admin/agents');
     if (maybeJson(opts, r)) return;
     if (r.items.length === 0) { console.log('no agents published'); return; }
+    // Status glyph encodes both online-ness AND lifecycle:
+    //   ●  published + online   (the happy path)
+    //   ○  published + offline  (agent registered but session is dead)
+    //   ◐  draft (created but not made public; not in /agents discovery)
+    //   ✘  soft-deleted (deleted_at set; hidden from /agents + public-ask)
+    // Soft-deleted takes precedence — these rows linger only for admin
+    // forensics and are otherwise invisible to every other API surface.
     for (const a of r.items) {
-      const dot = a.online ? '●' : '○';
-      const iso = a.isolated ? '[isolated]' : '[composable]';
-      const tag = a.tagline ? ` — ${a.tagline}` : '';
-      console.log(`${dot} ${pad(a.handle, 32)} ${iso}  owner=@${pad(a.ownerLogin, 16)} budget=${a.dailyBudgetQueries ?? '—'}  cap=${a.concurrencyCap ?? '—'}${tag}`);
+      let dot;
+      if (a.deletedAt)              dot = '✘';
+      else if (a.status === 'draft') dot = '◐';
+      else                          dot = a.online ? '●' : '○';
+      const iso  = a.isolated ? '[isolated]' : '[composable]';
+      const tag  = a.tagline ? ` — ${a.tagline}` : '';
+      const meta = a.deletedAt
+        ? ` [DELETED ${a.deletedAt.slice(0, 10)}]`
+        : (a.status === 'draft' ? ' [draft]' : '');
+      console.log(`${dot} ${pad(a.handle, 32)} ${iso}${meta}  owner=@${pad(a.ownerLogin, 16)} budget=${a.dailyBudgetQueries ?? '—'}  cap=${a.concurrencyCap ?? '—'}${tag}`);
     }
     console.log(`\n${r.total} total`);
   });
