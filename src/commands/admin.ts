@@ -348,6 +348,60 @@ const agentsNs = new Command('agents')
   .description('cross-tenant agents endpoints')
   .addCommand(agentsList);
 
+// ─── tokens ──────────────────────────────────────────────────────
+
+interface AdminTokenRow {
+  id:         number;
+  kind:       'channel' | 'app';
+  name:       string | null;
+  prefix:     string;
+  userId:     number;
+  userLogin:  string | null;
+  createdAt:  string;
+  lastUsedAt: string | null;
+  revokedAt:  string | null;
+  active:     boolean;
+  appName:    string | null;
+  machineId:  string | null;
+}
+
+const VALID_KIND   = ['channel', 'app', 'all'];
+const VALID_ACTIVE = ['true', 'false', 'all'];
+
+const tokensList = new Command('list')
+  .alias('ls')
+  .description('every token (channel + app) across all users on the hub')
+  .option('--kind <k>',   `filter by kind: ${VALID_KIND.join(' | ')}`, 'all')
+  .option('--active <a>', `filter by state: ${VALID_ACTIVE.join(' | ')} (true=active, false=revoked)`, 'all')
+  .option('--limit <n>',  'page size (1-500)', (v) => parseInt(v, 10), 200)
+  .option('--json',       'emit JSON instead of a table')
+  .action(async (opts: { kind: string; active: string; limit: number; json?: boolean }) => {
+    if (!VALID_KIND.includes(opts.kind)) {
+      console.error(`--kind must be one of: ${VALID_KIND.join(', ')}`); process.exit(1);
+    }
+    if (!VALID_ACTIVE.includes(opts.active)) {
+      console.error(`--active must be one of: ${VALID_ACTIVE.join(', ')}`); process.exit(1);
+    }
+    const qs = new URLSearchParams({ limit: String(opts.limit), active: opts.active, kind: opts.kind });
+    const r = await api.get<{ items: AdminTokenRow[]; total: number; returned: number }>(`/api/v1/admin/tokens?${qs}`);
+    if (maybeJson(opts, r)) return;
+    if (r.items.length === 0) { console.log('no tokens'); return; }
+    // ● active   ✘ revoked
+    for (const t of r.items) {
+      const dot   = t.active ? '●' : '✘';
+      const name  = t.name ?? (t.appName ? `app:${t.appName}` : '(unnamed)');
+      const owner = t.userLogin ? `@${t.userLogin}` : `user#${t.userId}`;
+      const used  = t.lastUsedAt ? `used=${fmtRelative(t.lastUsedAt)}` : 'never used';
+      const rev   = t.revokedAt ? `  revoked=${fmtRelative(t.revokedAt)}` : '';
+      console.log(`${dot} ${pad(t.kind, 7)} ${pad(name, 22)} ${pad(t.prefix, 20)} ${pad(owner, 18)} created=${fmtRelative(t.createdAt)}  ${used}${rev}`);
+    }
+    console.log(`\n${r.returned} shown of ${r.total} total`);
+  });
+
+const tokensCmd = new Command('tokens')
+  .description('cross-tenant token inventory')
+  .addCommand(tokensList);
+
 // ─── root ────────────────────────────────────────────────────────
 
 export const adminCmd = new Command('admin')
@@ -355,4 +409,5 @@ export const adminCmd = new Command('admin')
   .addCommand(statsCmd)
   .addCommand(sessionsCmd)
   .addCommand(sharesCmd)
-  .addCommand(agentsNs);
+  .addCommand(agentsNs)
+  .addCommand(tokensCmd);
