@@ -305,6 +305,7 @@ interface AdminAgentRow {
   ownerLogin: string;
   tagline: string | null;
   isolated: boolean;
+  liveView: boolean;
   sessionRoute: string | null;
   online: boolean;
   status: 'draft' | 'published';
@@ -334,12 +335,16 @@ const agentsList = new Command('list')
       if (a.deletedAt)              dot = '✘';
       else if (a.status === 'draft') dot = '◐';
       else                          dot = a.online ? '●' : '○';
-      const iso  = a.isolated ? '[isolated]' : '[composable]';
-      const tag  = a.tagline ? ` — ${a.tagline}` : '';
+      const iso  = pad(a.isolated ? '[isolated]' : '[composable]', 12);
+      // live-view ON = reachable via the anonymous public-ask path
+      // (no bench/GitHub login needed). The flag admins most want to
+      // eyeball for exposure.
+      const lv   = pad(a.liveView ? '[live-view]' : '[no-live-view]', 14);
+      const tag  = a.tagline ? ` - ${a.tagline}` : '';
       const meta = a.deletedAt
         ? ` [DELETED ${a.deletedAt.slice(0, 10)}]`
         : (a.status === 'draft' ? ' [draft]' : '');
-      console.log(`${dot} ${pad(a.handle, 32)} ${iso}${meta}  owner=@${pad(a.ownerLogin, 16)} budget=${a.dailyBudgetQueries ?? '—'}  cap=${a.concurrencyCap ?? '—'}${tag}`);
+      console.log(`${dot} ${pad(a.handle, 32)} ${iso} ${lv}${meta}  owner=@${pad(a.ownerLogin, 16)} budget=${a.dailyBudgetQueries ?? '-'}  cap=${a.concurrencyCap ?? '-'}${tag}`);
     }
     console.log(`\n${r.total} total`);
   });
