@@ -186,6 +186,36 @@ const sessionList = new Command('list')
     printSessionListFooter();
   });
 
+// Status line for `session info`: connected, in-flight (daemon online
+// but no channel), or offline. Mirrors how `session ls` and the SPA
+// classify a managed-but-unconnected session.
+function formatStatusLabel(s: ApiSession, onlineMachineIds: Set<string>): string {
+  if (s.connected) return 'connected';
+  const managedOnline = !!s.managedBy?.machineId && onlineMachineIds.has(s.managedBy.machineId);
+  return managedOnline ? 'in-flight (daemon online, no channel)' : 'offline';
+}
+
+// Managed-session block for `session info`: printed only when the
+// session is managed by a desktop daemon. Surfaces the fields the SPA's
+// Actions menu shows (autoStart, autoEnter, flags) so the CLI is at
+// parity for inspection. No-op for unmanaged sessions.
+function printManagedBlock(s: ApiSession): void {
+  if (!s.managedBy?.machineId) return;
+  const ver = s.managedBy.daemonVersion ? ` (daemon ${s.managedBy.daemonVersion})` : '';
+  console.log(`managed  : ${s.managedBy.machineId}${ver}`);
+  console.log(`autoStart: ${s.autoStart ? 'ON' : 'OFF'}`);
+  // autoEnter undefined: server predates the persistence change; show
+  // '?' rather than guessing the default.
+  const ae = s.autoEnter === undefined ? '?' : (s.autoEnter ? 'ON (auto)' : 'OFF (manual)');
+  console.log(`autoEnter: ${ae}`);
+  // extraFlags undefined: pre-persistence hub. Empty array: recorded
+  // but no flags supplied at create.
+  const flags = s.extraFlags;
+  if (flags === undefined)      console.log('flags    : ?');
+  else if (flags.length === 0)  console.log('flags    : (none)');
+  else                          console.log(`flags    : ${flags.join(' ')}`);
+}
+
 const sessionInfo = new Command('info')
   .description('show metadata for a single session')
   .argument('<ref>', 'session UUID or @routingName')
@@ -202,10 +232,6 @@ const sessionInfo = new Command('info')
     const onlineMachineIds = new Set(
       desktops.items.filter((d) => d.online).map((d) => d.machineId),
     );
-    const managedOnline = !!s.managedBy?.machineId && onlineMachineIds.has(s.managedBy.machineId);
-    const statusLabel   = s.connected
-      ? 'connected'
-      : (managedOnline ? 'in-flight (daemon online, no channel)' : 'offline');
     console.log(`session  : ${s.id}`);
     console.log(`routing  : ${s.routingName ?? '(none)'}`);
     console.log(`owner    : @${s.startedByLogin}`);
@@ -215,26 +241,8 @@ const sessionInfo = new Command('info')
     console.log(`channel v: ${s.channelVersion ?? '?'}`);
     console.log(`started  : ${s.startedAt}`);
     console.log(`last seen: ${s.lastSeenAt}`);
-    console.log(`status   : ${statusLabel}${s.archivedAt ? ' · ARCHIVED' : ''}`);
-    // Managed-session block — only printed when the session is
-    // managed by a desktop daemon. Surfaces the fields the SPA's
-    // Actions menu shows (autoStart, autoEnter) so the CLI is at
-    // parity for inspection.
-    if (s.managedBy?.machineId) {
-      const ver = s.managedBy.daemonVersion ? ` (daemon ${s.managedBy.daemonVersion})` : '';
-      console.log(`managed  : ${s.managedBy.machineId}${ver}`);
-      console.log(`autoStart: ${s.autoStart ? 'ON' : 'OFF'}`);
-      // autoEnter undefined → server is older than the persistence
-      // change; show '?' rather than guessing the default.
-      const ae = s.autoEnter === undefined ? '?' : (s.autoEnter ? 'ON (auto)' : 'OFF (manual)');
-      console.log(`autoEnter: ${ae}`);
-      // extraFlags undefined → server is pre-persistence (older hub);
-      // empty array → recorded but no flags supplied at create.
-      const flags = s.extraFlags;
-      if (flags === undefined)        console.log('flags    : ?');
-      else if (flags.length === 0)    console.log('flags    : (none)');
-      else                            console.log(`flags    : ${flags.join(' ')}`);
-    }
+    console.log(`status   : ${formatStatusLabel(s, onlineMachineIds)}${s.archivedAt ? ' · ARCHIVED' : ''}`);
+    printManagedBlock(s);
     if (s.agentHandle) {
       console.log(`agent    : ${s.agentHandle}`);
     }
