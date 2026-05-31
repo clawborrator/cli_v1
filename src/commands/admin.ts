@@ -402,6 +402,46 @@ const tokensCmd = new Command('tokens')
   .description('cross-tenant token inventory')
   .addCommand(tokensList);
 
+// ─── users ───────────────────────────────────────────────────────
+
+interface AdminUserRow {
+  id:           number;
+  github_login: string;
+  avatar_url:   string | null;
+  is_admin:     boolean;
+  is_service:   boolean;
+  // Present on hubs with the external_identities schema; the list of
+  // providers backing the user (github / google / zoho / service / shadow).
+  identities?:  string[];
+  // Present on older hubs (pre-external_identities) instead of identities.
+  github_id?:   number;
+  created_at:   string;
+}
+
+const usersList = new Command('list')
+  .alias('ls')
+  .description('every user on the hub (login, admin/service flags, identity providers)')
+  .option('--limit <n>', 'page size (1-500)', (v) => parseInt(v, 10), 200)
+  .option('--json',      'emit JSON instead of a table')
+  .action(async (opts: { limit: number; json?: boolean }) => {
+    const r = await api.get<{ items: AdminUserRow[]; total: number }>(`/api/v1/admin/users?limit=${opts.limit}`);
+    if (maybeJson(opts, r)) return;
+    if (r.items.length === 0) { console.log('no users'); return; }
+    // ★ admin   ⚙ service   · regular
+    for (const u of r.items) {
+      const dot   = u.is_admin ? '★' : (u.is_service ? '⚙' : '·');
+      const provs = u.identities?.length
+        ? u.identities.join(',')
+        : (u.github_id != null ? `github:${u.github_id}` : '—');
+      console.log(`${dot} #${pad(String(u.id), 5)} @${pad(u.github_login, 28)} ${pad(provs, 26)} created=${fmtRelative(u.created_at)}`);
+    }
+    console.log(`\n${r.total} total  (★ admin  ⚙ service)`);
+  });
+
+const usersCmd = new Command('users')
+  .description('cross-tenant users list')
+  .addCommand(usersList);
+
 // ─── root ────────────────────────────────────────────────────────
 
 export const adminCmd = new Command('admin')
@@ -410,4 +450,5 @@ export const adminCmd = new Command('admin')
   .addCommand(sessionsCmd)
   .addCommand(sharesCmd)
   .addCommand(agentsNs)
-  .addCommand(tokensCmd);
+  .addCommand(tokensCmd)
+  .addCommand(usersCmd);
