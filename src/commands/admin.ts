@@ -306,6 +306,7 @@ interface AdminAgentRow {
   tagline: string | null;
   isolated: boolean;
   liveView: boolean;
+  publicAsk: boolean;
   sessionRoute: string | null;
   online: boolean;
   status: 'draft' | 'published';
@@ -336,10 +337,15 @@ const agentsList = new Command('list')
       else if (a.status === 'draft') dot = '◐';
       else                          dot = a.online ? '●' : '○';
       const iso  = pad(a.isolated ? '[isolated]' : '[composable]', 12);
-      // live-view ON = reachable via the anonymous public-ask path
-      // (no bench/GitHub login needed). The flag admins most want to
-      // eyeball for exposure.
-      const lv   = pad(a.liveView ? '[live-view]' : '[no-live-view]', 14);
+      // Two independent exposure flags since migration 0030:
+      //   live-view = anonymous visitors can WATCH the terminal.
+      //   public-ask = anonymous visitors can CHAT/ask with no login
+      //                (the actual access boundary admins care about).
+      // public-ask is a subset of live-view. Render both so a
+      // watch-only agent reads differently from a fully-open one.
+      const lv   = pad(a.liveView
+        ? (a.publicAsk ? '[view+ask]' : '[view-only]')
+        : '[private]', 14);
       const tag  = a.tagline ? ` - ${a.tagline}` : '';
       const meta = a.deletedAt
         ? ` [DELETED ${a.deletedAt.slice(0, 10)}]`

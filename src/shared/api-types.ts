@@ -81,6 +81,10 @@ export interface ApiAgent {
    *  or after a flip back to false. Drives the "live since X"
    *  disclosure copy. */
   liveViewEnabledAt:   number | null;
+  /** Anonymous-ask gate (migration 0030). When true, anonymous visitors
+   *  can chat the agent via the public surface with no login. Subset of
+   *  liveView — always false while liveView is off. */
+  publicAsk:           boolean;
   /** Up to ~6 prompt strings rendered as chips above the composer on
    *  the landing-page demo. Empty array when none set / when liveView
    *  is off. */

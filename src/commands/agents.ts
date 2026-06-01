@@ -19,7 +19,7 @@ function printAgentRow(a: ApiAgent): void {
   const dot   = a.online ? '●' : '○';
   const tag   = a.status === 'draft' ? ' [draft]' : '';
   const iso   = a.isolated ? ' [isolated]' : ' [composable]';
-  const live  = a.liveView ? ' [📡 public-view]' : '';
+  const live  = a.liveView ? (a.publicAsk ? ' [📡 public-view+ask]' : ' [📡 public-view (watch-only)]') : '';
   const stats = `${a.queriesAllTime} queries`;
   const tagln = a.tagline ? ` — ${a.tagline}` : '';
   console.log(`${dot} @${a.handle}${tag}${iso}${live}  ${a.name}  ${stats}${tagln}`);
@@ -52,6 +52,8 @@ const agentsPublish = new Command('publish')
   .option('--composable',       'composable mode: agent CC may use cross-session routing tools (gated against the requester\'s own access)')
   .option('--live-view',        'expose this agent on next.clawborrator.com (anonymous visitors can watch the terminal + chat). Everything on the terminal becomes public — use a scratch session.')
   .option('--no-live-view',     'force live-view OFF (default)')
+  .option('--public-ask',       'let anonymous visitors chat/ask this agent with no login (requires --live-view). Off = watch-only.')
+  .option('--no-public-ask',    'force public-ask OFF (default; watch-only public surface)')
   .option('--suggested-prompt <text>', 'chip prompt shown above the live-view composer (repeatable, max 6)', collectRepeatable, [])
   .action(async (opts: PublishOpts) => {
     const r = await api.post<ApiAgent & { restored?: boolean }>('/api/v1/agents', buildPublishBody(opts));
@@ -70,7 +72,7 @@ interface PublishOpts {
   slug?: string; draft?: boolean; published?: boolean;
   budget?: number; concurrency?: number;
   isolated?: boolean; composable?: boolean;
-  liveView?: boolean; suggestedPrompt?: string[];
+  liveView?: boolean; publicAsk?: boolean; suggestedPrompt?: string[];
 }
 
 function buildPublishBody(opts: PublishOpts): Record<string, unknown> {
@@ -91,6 +93,10 @@ function buildPublishBody(opts: PublishOpts): Record<string, unknown> {
   // the same option to `false`, so an explicit absence stays
   // undefined (server default applies).
   if (typeof opts.liveView === 'boolean')   body.liveView = opts.liveView;
+  // public_ask is a subset of liveView; the server clamps it off when
+  // live-view is off. Pass it through verbatim when the operator used
+  // the flag so --live-view --public-ask lands a conductor in one shot.
+  if (typeof opts.publicAsk === 'boolean')  body.publicAsk = opts.publicAsk;
   if (opts.suggestedPrompt && opts.suggestedPrompt.length) {
     body.suggestedPrompts = opts.suggestedPrompt;
   }
@@ -103,6 +109,9 @@ function printPublishResult(r: ApiAgent & { restored?: boolean }): void {
   console.log(`  status:  ${r.status}`);
   console.log(`  mode:    ${r.isolated ? 'isolated (cross-session routing disabled while answering)' : 'composable (CC may route to peers)'}`);
   console.log(`  budget:  ${r.dailyBudgetQueries}/day, concurrency ${r.concurrencyCap}`);
+  if (r.liveView) {
+    console.log(`  public:  view ON, ask ${r.publicAsk ? 'ON (anonymous chat)' : 'OFF (watch-only)'}`);
+  }
   console.log(`  session: ${r.sessionId}`);
   if (r.status === 'draft') {
     console.log(`  next:    'claw agents update --status published @${r.handle}' to make it live`);
@@ -123,7 +132,9 @@ const agentsUpdate = new Command('update')
   .option('--isolated',        'switch to isolated mode (block cross-session routing while answering)')
   .option('--composable',      'switch to composable mode (allow cross-session routing tools)')
   .option('--live-view',       'enable public live-view on next.clawborrator.com (requires status=published)')
-  .option('--no-live-view',    'disable public live-view')
+  .option('--no-live-view',    'disable public live-view (also forces public-ask off)')
+  .option('--public-ask',      'enable anonymous chat/ask on the public surface (requires live-view)')
+  .option('--no-public-ask',   'disable anonymous chat/ask (watch-only public surface)')
   .option('--suggested-prompt <text>', 'replace the chip-prompt list (repeatable, max 6). Pass with no values to clear.', collectRepeatable, [])
   .action(async (handleArg: string, opts: any) => {
     const handle = handleArg.replace(/^@/, '');
@@ -148,6 +159,7 @@ function buildUpdateBody(opts: any): Record<string, unknown> {
   if (opts.composable)  body.isolated = false;
   else if (opts.isolated) body.isolated = true;
   if (typeof opts.liveView === 'boolean')   body.liveView           = opts.liveView;
+  if (typeof opts.publicAsk === 'boolean')  body.publicAsk          = opts.publicAsk;
   // Only send suggestedPrompts when the operator actually used the
   // flag (commander gives [] when not used, but we can't distinguish
   // that from "explicitly clear" without a sentinel — using --no-live-
